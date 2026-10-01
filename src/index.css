@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-paper: #F6F1E8;
+    --color-surface: #FFFFFF;
+    --color-ink: #171717;
+    --color-green: #B7F34A;
+    --color-yellow: #FFD84D;
+    --color-coral: #FF725E;
+  }
+
+  body {
+    background-color: #F6F1E8;
+    color: #171717;
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+.font-display {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.font-bangla {
+  font-family: 'Noto Sans Bengali', sans-serif;
+}
+
+.font-mono-code {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Restrained Neobrutalist Button System */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #171717;
+  color: #F6F1E8;
+  border: 2px solid #171717;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  padding: 10px 20px;
+  border-radius: 0px;
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+  cursor: pointer;
+  user-select: none;
+}
+
+.btn-primary:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 3px 3px 0 #171717;
+}
+
+.btn-primary:active {
+  transform: translate(0px, 0px);
+  box-shadow: 0 0 0 #171717;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  color: #171717;
+  border: 1px solid #171717;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  padding: 10px 20px;
+  border-radius: 0px;
+  transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease;
+  cursor: pointer;
+  user-select: none;
+}
+
+.btn-secondary:hover {
+  background-color: rgba(23, 23, 23, 0.05);
+}
+
+.btn-accent-green {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #B7F34A;
+  color: #171717;
+  border: 2px solid #171717;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  padding: 12px 28px;
+  border-radius: 0px;
+  box-shadow: 3px 3px 0 #171717;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+  cursor: pointer;
+}
+
+.btn-accent-green:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 #171717;
+}
+
+.btn-accent-green:active {
+  transform: translate(0, 0);
+  box-shadow: 1px 1px 0 #171717;
+}
+
+/* Editorial Card Base */
+.editorial-card {
+  background-color: #FFFFFF;
+  border: 1px solid #171717;
+  border-radius: 0px;
+}
+
+.editorial-card-interactive {
+  background-color: #FFFFFF;
+  border: 1px solid #171717;
+  border-radius: 0px;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.editorial-card-interactive:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 3px 3px 0 #171717;
+}
+
+/* Subtle Paper Texture (Very subtle organic speckle) */
+.paper-grain {
+  background-color: #F6F1E8;
+  background-image: radial-gradient(#171717 0.5px, transparent 0.5px);
+  background-size: 24px 24px;
+  background-position: 0 0;
+  opacity: 0.98;
+}

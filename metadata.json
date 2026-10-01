@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Kothay Gelo?",
+  "description": "Evidence-backed personal finance analysis and spending intelligence for Bangladesh. Process bank and mobile wallet statements with verifiable provenance, deterministic financial metrics, and actionable savings insights.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
