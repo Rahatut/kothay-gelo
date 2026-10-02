@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowRight, LockKeyhole } from 'lucide-react';
+import { authApi } from '../lib/api';
 
 interface AuthViewProps {
   onAuthenticated: () => void;
@@ -18,15 +19,10 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthenticated }) => {
     setError(null);
 
     try {
-      const response = await fetch(`/v1/auth/${mode}`, {
-        credentials: 'include',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.message || 'Could not complete authentication.');
+      if (mode === 'register') {
+        await authApi.register(email, password);
+      } else {
+        await authApi.login(email, password);
       }
       onAuthenticated();
     } catch (submissionError) {
