@@ -3,6 +3,7 @@
 // variables at runtime from the Secrets panel.
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
 import { createHash, randomBytes } from 'node:crypto';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
@@ -11,7 +12,7 @@ import { ProcessingPipeline } from './server/pipeline';
 import { narrateInsightFacts } from './server/gemini';
 import { GOLDEN_SAMPLES } from './server/goldenDataset';
 import { Transaction, type CorrectionRecord } from './src/types';
-import { assertRequiredConfig, port, ConfigError } from './server/config';
+import { assertRequiredConfig, port, ConfigError, allowedOrigins, appUrl } from './server/config';
 import { migrate } from './server/db/migrate';
 import { execute } from './server/db/client';
 import { authRouter } from './server/auth/routes';
@@ -118,6 +119,15 @@ async function startServer() {
   }
 
   const PORT = port();
+
+  // CORS: allow the API's own origin + explicitly allowed origins
+  const corsOrigins = [appUrl(), ...allowedOrigins()];
+  app.use(cors({
+    origin: corsOrigins,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  }));
 
   // JSON Body parsing up to 50mb for base64 statement images / PDF chunks
   app.use(express.json({ limit: '50mb' }));
