@@ -104,7 +104,7 @@ async function seedAccount(): Promise<void> {
 
 describe('capability layer contract', () => {
   before(async () => {
-    server = spawn('npx', ['tsx', 'server.ts'], {
+    server = spawn(process.execPath, ['--import', 'tsx', 'server.ts'], {
       cwd: process.cwd(),
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -137,7 +137,7 @@ describe('capability layer contract', () => {
         server.kill('SIGKILL');
       }
     }
-    rmSync(dir, { recursive: true, force: true });
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { /* cleanup is best-effort on Windows */ }
   });
 
   for (const name of NAMES) {

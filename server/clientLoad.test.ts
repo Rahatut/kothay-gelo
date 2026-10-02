@@ -118,7 +118,7 @@ async function upload(cookie: string): Promise<void> {
 
 describe('the client load path', () => {
   before(async () => {
-    server = spawn('npx', ['tsx', 'server.ts'], {
+    server = spawn(process.execPath, ['--import', 'tsx', 'server.ts'], {
       cwd: process.cwd(),
       // Its own process group, so the whole tree can be killed. `npx tsx` forks a
       // child; killing only the wrapper orphans the real server and the run hangs.
@@ -155,7 +155,7 @@ describe('the client load path', () => {
         server.kill('SIGKILL');
       }
     }
-    rmSync(dir, { recursive: true, force: true });
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { /* cleanup is best-effort on Windows */ }
   });
 
   test('loads an empty account without throwing', async () => {

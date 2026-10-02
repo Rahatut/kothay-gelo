@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db';
 import { extractWithGemini, type ExtractedCandidate } from './gemini';
+import { ocrImageBase64 } from './ocr';
 import { parseRow } from './rowParse';
 import { insertExtractedRows } from './db/repositories/transactions';
 import { UNCATEGORIZED_CATEGORY_ID } from './categories';
@@ -193,7 +194,20 @@ export class ProcessingPipeline {
     // Fallback: If Gemini returned empty (e.g. no key or offline), use deterministic parser for CSV/text
     const usedModel = Boolean(candidates && candidates.length > 0);
     if (!candidates || candidates.length === 0) {
-      candidates = this.deterministicTextExtraction(fileContent);
+      if (isBase64Image) {
+        // An image is not text. Reading the parser directly over the base64
+        // payload yielded "0 candidates" for every photo upload; the bytes are
+        // OCR'd first so the parser sees statement lines instead.
+        try {
+          const ocrText = await ocrImageBase64(fileContent);
+          candidates = this.deterministicTextExtraction(ocrText);
+        } catch (err) {
+          console.error('[Pipeline] OCR failed:', err);
+          candidates = [];
+        }
+      } else {
+        candidates = this.deterministicTextExtraction(fileContent);
+      }
     }
 
     // 4. NORMALIZING & 5. CATEGORIZING & 6. EVIDENCE MAPPING

@@ -39,7 +39,7 @@ const dbPath = path.join(dir, 'manual.db');
 let server: ChildProcess;
 
 function spawnServer(): ChildProcess {
-  return spawn('npx', ['tsx', 'server.ts'], {
+  return spawn(process.execPath, ['--import', 'tsx', 'server.ts'], {
     cwd: process.cwd(),
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -120,7 +120,7 @@ describe('manual transaction entry', () => {
 
   after(() => {
     kill(server);
-    rmSync(dir, { recursive: true, force: true });
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { /* cleanup is best-effort on Windows */ }
   });
 
   test('an entered transaction is persisted and readable back', async () => {

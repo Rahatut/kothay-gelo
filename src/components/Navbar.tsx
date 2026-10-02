@@ -12,6 +12,9 @@ import {
 Upload,
   Settings,
   TrendingUp,
+  LogOut,
+  MessageCircleQuestion,
+  PiggyBank,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -27,6 +30,7 @@ interface NavbarProps {
   onLoadGolden?: () => void;
   isLoadingGolden?: boolean;
   onOpenUpload?: () => void;
+  onLogout?: () => void;
 }
 
 const LANDING_LINKS = [
@@ -45,8 +49,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   locale,
   setLocale,
   onOpenUpload,
+  onLogout,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidePeek, setSidePeek] = useState(false);
 
   const scrollToLandingSection = (sectionId: string) => {
     setMobileMenuOpen(false);
@@ -90,13 +97,20 @@ export const Navbar: React.FC<NavbarProps> = ({
     // whole desk.
     { id: 'trends', label: locale === 'bn' ? 'প্যাটার্ন' : 'Trends', icon: TrendingUp },
     { id: 'goals', label: locale === 'bn' ? 'টার্গেট' : 'Targets', icon: Target },
+    { id: 'ask', label: locale === 'bn' ? 'জিজ্ঞেস করুন' : 'Ask', icon: MessageCircleQuestion },
+    { id: 'recommendations', label: locale === 'bn' ? 'পরামর্শ' : 'Recommendations', icon: PiggyBank },
     { id: 'upload', label: locale === 'bn' ? 'আপলোড' : 'Upload', icon: Upload },
     { id: 'settings', label: locale === 'bn' ? 'সেটিংস' : 'Settings', icon: Settings },
   ];
 
   return (
-    <header className="sticky top-0 z-40 bg-canvas/95 backdrop-blur-xs border-b border-hairline w-full">
-      <div className="shell h-16 flex items-center justify-between gap-4">
+    <>
+      <header className="sticky top-0 z-40 bg-canvas/95 backdrop-blur-xs border-b border-hairline w-full">
+      <div
+        className={`shell min-h-16 py-2 flex items-center justify-between gap-4 ${
+          currentPage === 'app' ? 'pl-16' : ''
+        }`}
+      >
         <div className="flex items-center gap-3 shrink-0">
           <button
             type="button"
@@ -141,35 +155,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             ))}
           </nav>
-        ) : (
-          <nav className="hidden md:flex items-center gap-1" aria-label="Workspace">
-            {appTabs.map((tab) => {
-              const isActive = activeTab === tab.id;
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`px-3 py-2 rounded-md transition-colors flex items-center gap-1.5 ${
-                    isActive
-                      ? 'bg-surface-strong text-ink'
-                      : 'text-body hover:text-ink hover:bg-surface-strong/60'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span className="type-body-sm font-medium whitespace-nowrap">{tab.label}</span>
-                  {tab.badge !== undefined && (
-                    <span className="ml-0.5 font-figure text-[10px] font-semibold text-error tabular-nums">
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-        )}
+        ) : null}
 
         <div className="hidden sm:flex items-center gap-2 shrink-0">
           <button
@@ -187,10 +173,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           ) : (
-            <button type="button" onClick={openUpload} className="btn-primary btn-sm">
-              <Upload className="w-3.5 h-3.5" aria-hidden="true" />
-              <span className="hidden lg:inline">Add statement</span>
-            </button>
+            <>
+              <button type="button" onClick={openUpload} className="btn-primary btn-sm">
+                <Upload className="w-3.5 h-3.5" aria-hidden="true" />
+                <span className="hidden lg:inline">Add statement</span>
+              </button>
+            </>
           )}
         </div>
 
@@ -206,62 +194,100 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button type="button" onClick={onNavigateLanding} className="btn-outline btn-sm">
             Home
           </button>
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="btn-outline btn-sm"
-            aria-label="Toggle navigation menu"
-            aria-expanded={mobileMenuOpen}
-          >
-            {mobileMenuOpen ? (
-              <X className="w-4 h-4" aria-hidden="true" />
-            ) : (
-              <Menu className="w-4 h-4" aria-hidden="true" />
-            )}
-          </button>
+          {currentPage !== 'app' && (
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="btn-outline btn-sm"
+              aria-label="Toggle navigation menu"
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? (
+                <X className="w-4 h-4" aria-hidden="true" />
+              ) : (
+                <Menu className="w-4 h-4" aria-hidden="true" />
+              )}
+            </button>
+          )}
         </div>
       </div>
 
-      {mobileMenuOpen && (
+      {mobileMenuOpen && currentPage !== 'app' && (
         <div className="md:hidden border-t border-hairline bg-canvas px-6 py-6">
-          {currentPage === 'landing' ? (
-            <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onNavigateDashboard();
+              }}
+              className="type-body-md font-medium text-ink text-left py-3 flex items-center justify-between border-b border-hairline mb-2"
+            >
+              <span>Launch financial dashboard</span>
+              <ArrowUpRight className="w-4 h-4" aria-hidden="true" />
+            </button>
+
+            {LANDING_LINKS.map((link) => (
               <button
+                key={link.id}
                 type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  onNavigateDashboard();
-                }}
-                className="type-body-md font-medium text-ink text-left py-3 flex items-center justify-between border-b border-hairline mb-2"
+                onClick={() => scrollToLandingSection(link.id)}
+                className="type-body-md text-body text-left py-3"
               >
-                <span>Launch financial dashboard</span>
-                <ArrowUpRight className="w-4 h-4" aria-hidden="true" />
+                {link.label}
               </button>
+            ))}
 
-              {LANDING_LINKS.map((link) => (
-                <button
-                  key={link.id}
-                  type="button"
-                  onClick={() => scrollToLandingSection(link.id)}
-                  className="type-body-md text-body text-left py-3"
-                >
-                  {link.label}
-                </button>
-              ))}
-
-              <div className="pt-4">
-                <button type="button" onClick={openUpload} className="btn-primary w-full">
-                  Upload transactions
-                </button>
-              </div>
+            <div className="pt-4">
+              <button type="button" onClick={openUpload} className="btn-primary w-full">
+                Upload transactions
+              </button>
             </div>
-          ) : (
-            <div className="flex flex-col gap-1">
-              <p className="type-caption-uppercase text-muted mb-3 pb-3 border-b border-hairline">
-                Workspace desk
-              </p>
+          </div>
+        </div>
+      )}
+    </header>
 
-              {appTabs.map((tab) => {
+      {/* Workspace sidebar must NOT live inside <header>: the header's
+          backdrop-filter creates a containing block for fixed-position
+          descendants, so a fixed sidebar inside it is clipped to the header. */}
+      {currentPage === 'app' && (
+        <aside
+          onMouseEnter={() => !sidebarOpen && setSidePeek(true)}
+          onMouseLeave={() => setSidePeek(false)}
+          aria-label="Workspace menu"
+          className={`fixed left-0 top-0 bottom-0 z-50 bg-canvas border-r border-hairline shadow-soft-lg flex flex-col overflow-hidden transition-[width] duration-300 ease-in-out ${
+            sidebarOpen || sidePeek ? 'w-72' : 'w-16'
+          }`}
+        >
+          {/* Toggle */}
+          <div className="h-16 flex items-center px-4 border-b border-hairline shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setSidebarOpen((v) => !v);
+                setSidePeek(false);
+              }}
+              className="btn-outline btn-sm"
+              aria-label={sidebarOpen ? 'Collapse menu' : 'Expand menu'}
+              aria-expanded={sidebarOpen || sidePeek}
+            >
+              {sidebarOpen || sidePeek ? (
+                <X className="w-4 h-4" aria-hidden="true" />
+              ) : (
+                <Menu className="w-4 h-4" aria-hidden="true" />
+              )}
+            </button>
+            {(sidebarOpen || sidePeek) && (
+              <span className="ml-3 type-title-md text-ink whitespace-nowrap">Kothay Gelo?</span>
+            )}
+          </div>
+
+          {/* Nav links */}
+          <nav className="flex-1 overflow-y-auto py-2" aria-label="Workspace desk">
+            {appTabs
+              .filter((tab) => tab.id !== 'settings')
+              .map((tab) => {
                 const isActive = activeTab === tab.id;
                 const Icon = tab.icon;
                 return (
@@ -270,18 +296,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                     type="button"
                     onClick={() => {
                       setActiveTab(tab.id);
-                      setMobileMenuOpen(false);
+                      setSidebarOpen(false);
+                      setSidePeek(false);
                     }}
                     aria-current={isActive ? 'page' : undefined}
-                    className={`type-body-md text-left py-3 px-3 rounded-md flex items-center justify-between ${
-                      isActive ? 'bg-surface-strong text-ink' : 'text-body'
+                    title={tab.label}
+                    className={`w-full text-left flex items-center gap-3 px-4 py-3 transition-colors whitespace-nowrap ${
+                      isActive ? 'bg-surface-strong text-ink' : 'text-body hover:bg-surface-strong/60'
                     }`}
                   >
-                    <span className="flex items-center gap-2">
-                      <Icon className="w-4 h-4" aria-hidden="true" />
-                      {tab.label}
-                    </span>
-                    {tab.badge !== undefined && (
+                    <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    {(sidebarOpen || sidePeek) && (
+                      <span className="type-body-md font-medium flex-1">{tab.label}</span>
+                    )}
+                    {(sidebarOpen || sidePeek) && tab.badge !== undefined && (
                       <span className="font-figure text-[10px] font-semibold text-error tabular-nums">
                         {tab.badge}
                       </span>
@@ -289,10 +317,39 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 );
               })}
-            </div>
-          )}
-        </div>
+          </nav>
+
+          {/* Footer: settings + sign out */}
+          <div className="border-t border-hairline py-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('settings');
+                setSidebarOpen(false);
+                setSidePeek(false);
+              }}
+              title="Settings"
+              className={`w-full text-left flex items-center gap-3 px-4 py-3 type-body-md font-medium transition-colors whitespace-nowrap ${
+                activeTab === 'settings' ? 'bg-surface-strong text-ink' : 'text-body hover:bg-surface-strong/60'
+              }`}
+            >
+              <Settings className="w-4 h-4 shrink-0" aria-hidden="true" />
+              {(sidebarOpen || sidePeek) && (locale === 'bn' ? 'সেটিংস' : 'Settings')}
+            </button>
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                title="Sign out"
+                className="w-full text-left flex items-center gap-3 px-4 py-3 type-body-md font-medium text-body hover:bg-surface-strong/60 whitespace-nowrap"
+              >
+                <LogOut className="w-4 h-4 shrink-0" aria-hidden="true" />
+                {(sidebarOpen || sidePeek) && 'Sign out'}
+              </button>
+            )}
+          </div>
+        </aside>
       )}
-    </header>
+    </>
   );
 };

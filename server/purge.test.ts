@@ -108,7 +108,7 @@ async function dashboardExpenses(account: Account): Promise<number> {
 
 describe('purging tenant data', () => {
   before(async () => {
-    server = spawn('npx', ['tsx', 'server.ts'], {
+    server = spawn(process.execPath, ['--import', 'tsx', 'server.ts'], {
       cwd: process.cwd(),
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -141,7 +141,7 @@ describe('purging tenant data', () => {
         server.kill('SIGKILL');
       }
     }
-    rmSync(dir, { recursive: true, force: true });
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { /* cleanup is best-effort on Windows */ }
   });
 
   test('a purge removes the rows it reported removing', async () => {

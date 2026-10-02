@@ -124,7 +124,7 @@ let data: Captured;
 
 describe('every screen renders against live data', () => {
   before(async () => {
-    server = spawn('npx', ['tsx', 'server.ts'], {
+    server = spawn(process.execPath, ['--import', 'tsx', 'server.ts'], {
       cwd: process.cwd(),
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -161,7 +161,7 @@ describe('every screen renders against live data', () => {
         server.kill('SIGKILL');
       }
     }
-    rmSync(dir, { recursive: true, force: true });
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { /* cleanup is best-effort on Windows */ }
   });
 
   test('the payloads are not empty, so the renders below mean something', () => {

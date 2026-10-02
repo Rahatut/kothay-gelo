@@ -11,6 +11,7 @@ import {
   roundMoney,
   buildTrendSeries,
   TREND_GRANULARITIES,
+  detectRecurringPatterns,
   type TrendGranularity,
 } from '../../financialEngine';
 import { toTransactions } from '../mapping';
@@ -484,22 +485,42 @@ export const savingsEstimation: Capability<{ period: Period }> = {
 };
 
 /**
- * Registered but not implemented.
+ * Wired to the engine's detector (spec 007).
  *
- * Recurring detection is one of the eight ratified capabilities, so the name is
- * addressable and returns an honest insufficiency rather than an error. Spec 007
- * supplies the real handler. The important part is that it does not fabricate a
- * figure in the meantime.
+ * Detection runs over every row in the period the caller supplies, so a
+ * statement history wider than one month is what lets the detector see a
+ * recurrence at all. It never touches the model and never guesses an amount.
  */
 export const recurringExpenses: Capability<{ period: Period }> = {
   name: 'recurring_expenses',
   validate: paramsWithPeriod,
-  async handler(_ctx, { period }): Promise<CapabilityResult> {
-    return insufficient(
-      'capability_not_implemented',
-      'Recurring expense detection is not available yet.',
-      { period },
-    );
+  async handler(ctx, { period }): Promise<CapabilityResult> {
+    const transactions = await loadAll(ctx.accountId, period);
+    if (transactions.length === 0) {
+      return insufficient('no_transactions_in_period', 'No transactions were found in that period.', {
+        period,
+      });
+    }
+
+    const patterns = detectRecurringPatterns(transactions, { today: ctx.today });
+
+    if (patterns.length === 0) {
+      return insufficient(
+        'no_recurring_expenses_detected',
+        'No charge repeats at a steady interval in that period.',
+        { period },
+      );
+    }
+
+    return {
+      data: { period, patterns },
+      evidence: {
+        transaction_ids: [...new Set(patterns.flatMap((p) => p.occurrences.map((o) => o.id)))],
+      },
+      ...(isOpenPeriod(period)
+        ? { estimate: { basis: 'the period has not finished, so a stopped pattern may resume' } }
+        : {}),
+    };
   },
 };
 

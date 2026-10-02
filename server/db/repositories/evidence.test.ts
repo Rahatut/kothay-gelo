@@ -44,7 +44,7 @@ describe('evidence is mandatory', () => {
   });
 
   after(() => {
-    rmSync(dir, { recursive: true, force: true });
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { /* cleanup is best-effort on Windows */ }
   });
 
   test('the schema rejects a link whose evidence belongs to another account', async () => {

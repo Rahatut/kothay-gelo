@@ -302,6 +302,36 @@ export function generateDeterministicNarration(
 }
 
 /**
+ * Free-form phrasing for the question surface (spec 005).
+ *
+ * The facts are fixed before this is called: the model phrases only, and the
+ * caller always has the deterministic phrasing to fall back to, so the answer
+ * survives an unavailable model (FR-018).
+ */
+export async function narratePrompt(prompt: string): Promise<string | null> {
+  const ai = getAiClient();
+  if (!ai) return null;
+
+  const modelCandidates = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
+  for (let i = 0; i < modelCandidates.length; i++) {
+    const model = modelCandidates[i];
+    if (isModelCoolingDown(model)) continue;
+    try {
+      const response = await ai.models.generateContent({ model, contents: prompt });
+      const text = response.text?.trim();
+      if (text) return text;
+    } catch (err: any) {
+      if (isTransientDemandError(err)) markModelDemandCooldown(model);
+      if (i < modelCandidates.length - 1) {
+        await sleep(300);
+        continue;
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Server-side explanation narration with demand spike resiliency and fallback models.
  * Strictly receives structured mathematical facts without altering any underlying numbers.
  */

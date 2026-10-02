@@ -40,7 +40,7 @@ before(async () => {
 });
 
 after(() => {
-  rmSync(dir, { recursive: true, force: true });
+  try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { /* cleanup is best-effort on Windows */ }
 });
 
 async function createAccount(email: string): Promise<string> {

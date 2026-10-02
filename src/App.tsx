@@ -18,6 +18,8 @@ import {
 } from './components/TrendsView';
 import { Footer } from './components/Footer';
 import { AuthView } from './components/AuthView';
+import { AskView } from './components/AskView';
+import { RecommendationsView } from './components/RecommendationsView';
 
 import { 
   DashboardSummary, 
@@ -47,7 +49,7 @@ export function App() {
   const [currentPage, setCurrentPage] = useState<'landing' | 'auth' | 'app'>(() => {
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.replace('#', '');
-      if (['dashboard', 'transactions', 'review', 'insights', 'goals', 'upload', 'settings', 'app'].includes(hash)) {
+      if (['dashboard', 'transactions', 'review', 'insights', 'goals', 'upload', 'settings', 'app', 'ask', 'recommendations'].includes(hash)) {
         // A deep link goes to the desk, which then routes itself to sign-in if the
         // session turns out to be missing.
         return 'app';
@@ -59,7 +61,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.replace('#', '');
-      if (['dashboard', 'transactions', 'review', 'insights', 'trends', 'goals', 'upload', 'settings'].includes(hash)) {
+      if (['dashboard', 'transactions', 'review', 'insights', 'trends', 'goals', 'upload', 'settings', 'ask', 'recommendations'].includes(hash)) {
         return hash;
       }
     }
@@ -187,7 +189,7 @@ export function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
-      if (['dashboard', 'transactions', 'review', 'insights', 'trends', 'goals', 'upload', 'settings'].includes(hash)) {
+      if (['dashboard', 'transactions', 'review', 'insights', 'trends', 'goals', 'upload', 'settings', 'ask', 'recommendations'].includes(hash)) {
         setCurrentPage('app');
         setActiveTab(hash);
       } else if (hash === '' || hash === 'landing') {
@@ -464,6 +466,20 @@ export function App() {
   };
 
 
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch('/v1/auth/logout', { credentials: 'include', method: 'POST' });
+    } catch (err) {
+      console.error('Logout request failed:', err);
+    }
+    setIsAuthenticated(false);
+    setCurrentPage('landing');
+    setActiveTab('dashboard');
+    window.location.hash = '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showToast('Signed out.');
+  }, []);
+
   const needsReviewCount = summary?.needs_review_count || 0;
 
   /**
@@ -526,6 +542,7 @@ export function App() {
         onLoadGolden={handleLoadGolden}
         isLoadingGolden={isLoadingGolden}
         onOpenUpload={() => navigateToTab('upload')}
+        onLogout={isAuthenticated ? handleLogout : undefined}
       />
 
       {/* Conditional Rendering: Separate Landing Page vs Dedicated App / Dashboard Page */}
@@ -547,7 +564,7 @@ export function App() {
         />
       ) : (
         /* Dedicated Standalone Financial Desk & Workspaces */
-        <main className="flex-1 w-full band-compact">
+        <main className="flex-1 w-full band-compact pl-16">
           <div className="shell">
           {activeTab === 'dashboard' && (
             <DashboardView
@@ -649,6 +666,10 @@ export function App() {
               onDeleteGoal={handleDeleteGoal}
             />
           )}
+
+          {activeTab === 'ask' && <AskView locale={locale} />}
+
+          {activeTab === 'recommendations' && <RecommendationsView locale={locale} />}
 
           {activeTab === 'settings' && (
             <SettingsView

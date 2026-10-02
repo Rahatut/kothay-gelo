@@ -38,7 +38,7 @@ let server: ChildProcess;
  * kill takes the whole group down.
  */
 function spawnServer(env: Record<string, string>): ChildProcess {
-  return spawn('npx', ['tsx', 'server.ts'], {
+  return spawn(process.execPath, ['--import', 'tsx', 'server.ts'], {
     cwd: process.cwd(),
     env: { ...process.env, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -150,7 +150,7 @@ before(async () => {
 
 after(() => {
   killServer(server);
-  rmSync(dir, { recursive: true, force: true });
+  try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { /* cleanup is best-effort on Windows */ }
 });
 
 describe('unauthenticated access', () => {

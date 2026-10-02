@@ -198,6 +198,9 @@ export const UploadView: React.FC<UploadViewProps> = ({
           mime_type: selectedFile.type || 'text/plain',
           file_size_bytes: selectedFile.size,
           content,
+          // The server trusted the filename before; flag image bytes so the
+          // pipeline OCRs them instead of parsing the base64 as a statement.
+          is_base64_image: isImage,
         }),
       });
 

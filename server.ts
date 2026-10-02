@@ -17,6 +17,7 @@ import { execute } from './server/db/client';
 import { authRouter } from './server/auth/routes';
 import { attachIdentity, requireSameOrigin, requireIdentity } from './server/auth/guard';
 import { capabilityRouter } from './server/capabilities/routes';
+import { askRouter } from './server/ask';
 import { invokeCapability } from './server/capabilities/guard';
 import { resolvePeriod } from './server/capabilities/resolvePeriod';
 import {
@@ -223,6 +224,7 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
   // go through the engine. Mounted after the /v1 guard, so a caller must be
   // authenticated and the guard has already resolved the account.
   app.use('/v1/capabilities', capabilityRouter);
+  app.use('/v1/ask', askRouter);
 
   /**
    * A salted digest of the request's IP, or null when the IP is unavailable.
@@ -1233,6 +1235,53 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
         supporting_transactions: supportingTxns,
       },
     });
+  });
+
+  app.get('/v1/recommendations', (req, res) => {
+    const userId = getAuthenticatedUserId(req);
+    const list = Array.from(db.recommendations.values()).filter((r) => r.user_id === userId);
+
+    // Overlap is stated, not hidden: two recommendations that cite any of the
+    // same rows cannot both be fully acted on, so each names the other.
+    const withOverlap = list.map((rec) => {
+      const mine = new Set(rec.supporting_transaction_ids ?? []);
+      const overlapping = list
+        .filter((other) => other.id !== rec.id && (other.supporting_transaction_ids ?? []).some((id) => mine.has(id)))
+        .map((other) => other.id);
+      const tracked = db.feedback.some(
+        (f) => f.object_type === 'Recommendation' && f.object_id === rec.id && f.feedback_type === 'acted_on',
+      );
+      return { ...rec, overlapping_recommendation_ids: overlapping, tracked };
+    });
+
+    res.json({
+      data: withOverlap,
+      bounds_are_additive: false,
+      note: 'Each saving range applies to that recommendation alone. Recommendations may share transactions, so the ranges are not additive.',
+    });
+  });
+
+  app.post('/v1/recommendations/:id/feedback', (req, res) => {
+    const userId = getAuthenticatedUserId(req);
+    const rec = db.recommendations.get(req.params.id);
+    if (!rec || rec.user_id !== userId) {
+      return refuseNotFound(req, res, 'Recommendation', req.params.id, { code: 'NOT_FOUND', message: 'Recommendation not found' });
+    }
+    const { feedback_type, comment } = req.body ?? {};
+    if (typeof feedback_type !== 'string' || !['helpful', 'not_helpful', 'acted_on'].includes(feedback_type)) {
+      return res.status(422).json({ error: { code: 'invalid_params', message: 'feedback_type must be helpful, not_helpful, or acted_on.' } });
+    }
+    db.feedback.push({
+      id: newFeedbackId(),
+      user_id: userId,
+      object_type: 'Recommendation',
+      object_id: req.params.id,
+      feedback_type,
+      comment,
+      created_at: new Date().toISOString(),
+    });
+    db.logAudit(userId, 'RECOMMENDATION_FEEDBACK', 'Recommendation', req.params.id, `Feedback: ${feedback_type}`);
+    res.json({ success: true });
   });
 
   app.post('/v1/insights/:id/feedback', (req, res) => {

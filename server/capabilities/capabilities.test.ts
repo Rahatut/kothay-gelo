@@ -83,7 +83,7 @@ before(async () => {
 
 after(() => {
   closeClient();
-  rmSync(dir, { recursive: true, force: true });
+  try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { /* cleanup is best-effort on Windows */ }
 });
 
 async function call(accountId: string | null, name: string, params: unknown) {

@@ -955,3 +955,137 @@ function isFullBucket(point: TrendPoint, granularity: TrendGranularity): boolean
       return days >= 365;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Recurring expense detection (spec 007)
+// ---------------------------------------------------------------------------
+
+export type RecurringFrequency = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
+
+export interface RecurringPattern {
+  merchant: string;
+  frequency: RecurringFrequency;
+  /** 'provisional' for exactly two supporting occurrences, else 'confirmed'. */
+  confidence: 'provisional' | 'confirmed';
+  /** 'stopped' when the expected next charge is already past. */
+  state: 'active' | 'stopped';
+  occurrences: { id: string; date: string; amount: number }[];
+  amount_min: number;
+  amount_max: number;
+  /** Max minus min across occurrences; zero when the amount is stable. */
+  amount_variation: number;
+  /** Monthly and annual cost, both derived from the occurrences. */
+  monthly_cost: number;
+  annual_cost: number;
+  calculation_version: string;
+}
+
+const RECURRING_FREQUENCIES: { name: RecurringFrequency; targetDays: number; tolerance: number }[] = [
+  { name: 'WEEKLY', targetDays: 7, tolerance: 2 },
+  { name: 'MONTHLY', targetDays: 30, tolerance: 4 },
+  { name: 'QUARTERLY', targetDays: 91, tolerance: 8 },
+  { name: 'ANNUAL', targetDays: 365, tolerance: 15 },
+];
+
+function normaliseMerchantKey(name: string): string {
+  return name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+/**
+ * Detects standing commitments: a merchant paid at a steady interval.
+ *
+ * Rules, all derived from spec 007:
+ *  - at least two occurrences, two being provisional and three or more
+ *    confirmed (FR-003);
+ *  - grouping is by normalised merchant name, per identity by construction
+ *    since the caller passes one identity's rows (FR-002, FR-011);
+ *  - the interval must be steady within tolerance for every gap (FR-007);
+ *  - amounts that carry no stable centre are excluded (FR-015): a merchant
+ *    whose "subscription" is anywhere between ৳50 and ৳5,000 is not a
+ *    subscription the system can price;
+ *  - monthly and annual costs come from the engine's own rounding (FR-006).
+ */
+export function detectRecurringPatterns(
+  transactions: Transaction[],
+  options: { today?: string } = {},
+): RecurringPattern[] {
+  const today = options.today ?? new Date().toISOString().slice(0, 10);
+  const expenses = transactions.filter(
+    (t) => t.direction === 'EXPENSE' && t.amount > 0 && t.merchant_name,
+  );
+
+  const byMerchant = new Map<string, Transaction[]>();
+  for (const t of expenses) {
+    const key = normaliseMerchantKey(t.merchant_name);
+    if (!key) continue;
+    const bucket = byMerchant.get(key);
+    if (bucket) bucket.push(t);
+    else byMerchant.set(key, [t]);
+  }
+
+  const patterns: RecurringPattern[] = [];
+
+  for (const rows of byMerchant.values()) {
+    if (rows.length < 2) continue;
+    const sorted = [...rows].sort((a, b) => a.transaction_date.localeCompare(b.transaction_date));
+
+    const gaps: number[] = [];
+    for (let i = 1; i < sorted.length; i++) {
+      gaps.push(
+        Math.round(
+          (Date.parse(`${sorted[i].transaction_date}T00:00:00Z`) -
+            Date.parse(`${sorted[i - 1].transaction_date}T00:00:00Z`)) /
+            86_400_000,
+        ),
+      );
+    }
+
+    const frequency = RECURRING_FREQUENCIES.find((f) =>
+      gaps.every((g) => Math.abs(g - f.targetDays) <= f.tolerance),
+    );
+    if (!frequency) continue;
+
+    const amounts = sorted.map((t) => t.amount);
+    const min = roundMoney(Math.min(...amounts));
+    const max = roundMoney(Math.max(...amounts));
+    const median = roundMoney([...amounts].sort((a, b) => a - b)[Math.floor(amounts.length / 2)]);
+
+    if (max - min > median && max - min > 100) continue;
+
+    const average = roundMoney(amounts.reduce((s, a) => s + a, 0) / amounts.length);
+    const monthly_cost =
+      frequency.name === 'WEEKLY'
+        ? roundMoney((average * 52) / 12)
+        : frequency.name === 'QUARTERLY'
+          ? roundMoney(average / 3)
+          : frequency.name === 'ANNUAL'
+            ? roundMoney(average / 12)
+            : average;
+    const annual_cost = roundMoney(monthly_cost * 12);
+
+    const intervalDays = frequency.targetDays;
+    const lastDate = sorted[sorted.length - 1].transaction_date;
+    const daysSinceLast = Math.round(
+      (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${lastDate}T00:00:00Z`)) / 86_400_000,
+    );
+    // A pattern whose last charge is overdue by more than its own interval is a
+    // stopped commitment, not an active one (FR-008).
+    const state: 'active' | 'stopped' = daysSinceLast > intervalDays * 1.5 ? 'stopped' : 'active';
+
+    patterns.push({
+      merchant: sorted[0].merchant_name,
+      frequency: frequency.name,
+      confidence: sorted.length === 2 ? 'provisional' : 'confirmed',
+      state,
+      occurrences: sorted.map((t) => ({ id: t.id, date: t.transaction_date, amount: t.amount })),
+      amount_min: min,
+      amount_max: max,
+      amount_variation: roundMoney(max - min),
+      monthly_cost,
+      annual_cost,
+      calculation_version: 'recurring-v1',
+    });
+  }
+
+  return patterns.sort((a, b) => b.annual_cost - a.annual_cost);
+}
