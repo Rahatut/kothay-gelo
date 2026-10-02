@@ -94,6 +94,16 @@ export function geminiApiKey(): string | undefined {
   return read('GEMINI_API_KEY');
 }
 
+/**
+ * Additional allowed origins for CORS/same-origin checks.
+ * Comma-separated list of origins (e.g., "https://rahatut.github.io,https://example.com").
+ */
+export function allowedOrigins(): string[] {
+  const raw = read('ALLOWED_ORIGINS');
+  if (!raw) return [];
+  return raw.split(',').map((o) => o.trim()).filter(Boolean);
+}
+
 /** Whether demo rows should be seeded at boot. Off by default. */
 export function demoSeedEnabled(): boolean {
   return read('DEMO_SEED') === '1';

@@ -24,3 +24,5 @@ services:
         sync: false
       - key: SUPABASE_APP_DB_PASSWORD
         sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false

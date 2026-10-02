@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { resolveSession } from '../db/repositories/sessions';
-import { appUrl } from '../config';
+import { appUrl, allowedOrigins } from '../config';
 import { hashSessionToken, readSessionToken } from './session';
 
 /**
@@ -29,7 +29,8 @@ export type AuthFailure = 'unauthenticated' | 'session_expired' | 'forbidden_ori
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
- * Rejects a state-changing request whose Origin does not match this deployment.
+ * Rejects a state-changing request whose Origin does not match this deployment
+ * or an explicitly allowed origin.
  *
  * The interface is served by this same process, so a legitimate request is
  * always same-origin. `SameSite=Lax` is the second layer; neither is a
@@ -43,11 +44,12 @@ export function requireSameOrigin(req: Request, res: Response, next: NextFunctio
   const origin = req.get('origin');
   if (!origin) return next();
 
-  if (origin !== appUrl()) {
+  const allowed = [appUrl(), ...allowedOrigins()];
+  if (!allowed.includes(origin)) {
     res.status(403).json({
       ok: false,
       error: 'forbidden_origin',
-      message: 'This request did not originate from this site.',
+      message: 'This request did not originate from an allowed site.',
     });
     return;
   }
