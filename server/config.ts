@@ -37,15 +37,16 @@ function requireValue(name: string): string {
 /**
  * Database target. A `file:` URL is development only — the container
  * filesystem is ephemeral, so a local file loses every record on instance
- * restart and fails the persistence requirement. Production must be `libsql://`.
+ * restart and fails the persistence requirement. Production can be `libsql://`
+ * (Turso) or `postgresql://` (Supabase/Render/Postgres).
  */
 export function databaseUrl(): string {
   const url = requireValue('DATABASE_URL');
-  const isRemote = url.startsWith('libsql://') || url.startsWith('https://');
+  const isRemote = url.startsWith('libsql://') || url.startsWith('https://') || url.startsWith('postgresql://');
   const isLocal = url.startsWith('file:');
   if (!isRemote && !isLocal) {
     throw new ConfigError(
-      `DATABASE_URL must begin with "libsql://" or "file:", received "${url.slice(0, 12)}…".`,
+      `DATABASE_URL must begin with "libsql://", "postgresql://", or "file:", received "${url.slice(0, 12)}…".`,
     );
   }
   return url;
@@ -53,7 +54,8 @@ export function databaseUrl(): string {
 
 /** True when the database target is a local file, which must never ship. */
 export function isLocalDatabase(): boolean {
-  return databaseUrl().startsWith('file:');
+  const url = read('DATABASE_URL');
+  return url?.startsWith('file:') === true;
 }
 
 /**
