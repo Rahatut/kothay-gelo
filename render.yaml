@@ -9,7 +9,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromSecret: SUPABASE_APP_DB_URL
+        value: ""  # Set in dashboard: SUPABASE_APP_DB_URL secret
       - key: APP_URL
         value: https://kothay-gelo-api.onrender.com
       - key: PORT
