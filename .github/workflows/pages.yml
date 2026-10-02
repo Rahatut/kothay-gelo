@@ -24,7 +24,7 @@ jobs:
       - run: npm run build
         env:
           GITHUB_PAGES: "true"
-          VITE_API_URL: "https://kothay-gelo-api.onrender.com"
+          VITE_API_URL: "https://kothay-gelo-api.onrender.com/v1"
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
