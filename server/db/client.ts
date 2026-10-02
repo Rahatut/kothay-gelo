@@ -65,6 +65,14 @@ function usePostgres(): boolean {
   return isPostgresDatabase();
 }
 
+function convertPlaceholders(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => {
+    index++;
+    return `$${index}`;
+  });
+}
+
 /**
  * Runs a statement and returns rows.
  * Accepts either (sql, params[]) or { sql, args } object for compatibility.
@@ -77,7 +85,8 @@ export async function query<T = Record<string, unknown>>(
   const args = typeof sqlOrObj === 'string' ? params : sqlOrObj.args;
 
   if (usePostgres()) {
-    const result = await getPgClient().unsafe(sqlText, args as any[]);
+    const pgSql = convertPlaceholders(sqlText);
+    const result = await getPgClient().unsafe(pgSql, args as any[]);
     return result as unknown as T[];
   } else {
     const client = await getLibsqlClient();
@@ -95,7 +104,8 @@ export async function execute(
   const args = typeof sqlOrObj === 'string' ? params : sqlOrObj.args;
 
   if (usePostgres()) {
-    await getPgClient().unsafe(sqlText, args as any[]);
+    const pgSql = convertPlaceholders(sqlText);
+    await getPgClient().unsafe(pgSql, args as any[]);
   } else {
     const client = await getLibsqlClient();
     await client.execute({ sql: sqlText, args });
@@ -116,7 +126,8 @@ export async function transaction<T>(
         execute: async (sqlOrObj: string | { sql: string; args: unknown[] }, params?: unknown[]) => {
           const sqlText = typeof sqlOrObj === 'string' ? sqlOrObj : sqlOrObj.sql;
           const args = typeof sqlOrObj === 'string' ? (params ?? []) : sqlOrObj.args;
-          const result = await tx.unsafe(sqlText, args as any[]);
+          const pgSql = convertPlaceholders(sqlText);
+          const result = await tx.unsafe(pgSql, args as any[]);
           return result as unknown as unknown[];
         },
       };
