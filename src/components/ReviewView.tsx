@@ -1,14 +1,7 @@
 import React, { useState } from 'react';
-import { 
-  Check, 
-  X, 
-  FileText, 
-  Edit3, 
-  AlertTriangle, 
-  CheckSquare,
-  ShieldCheck
-} from 'lucide-react';
+import { Check, FileText, Pencil } from 'lucide-react';
 import { Transaction, Category } from '../types';
+import { extractionConfidenceOf } from '../provenance';
 
 interface ReviewViewProps {
   transactions: Transaction[];
@@ -18,6 +11,57 @@ interface ReviewViewProps {
   onUpdateTransaction: (txId: string, updates: Partial<Transaction>) => Promise<void>;
   onInspectEvidence: (tx: Transaction) => void;
 }
+
+type FilterType = 'NEEDS_REVIEW' | 'DUPLICATES' | 'ALL';
+
+const COPY = {
+  en: {
+    title: 'Evidence verification desk',
+    subtitle:
+      'Audit raw extraction candidates. Confirm predictions, reclassify categories, and resolve duplicate suspects.',
+    tabNeedsReview: 'Needs confirmation',
+    tabDuplicates: 'Duplicate suspects',
+    tabAll: 'All transactions',
+    confirmAllPrompt: 'Accept all filtered',
+    editingTransaction: 'Editing transaction',
+    merchantLabel: 'Merchant / counterparty',
+    categoryLabel: 'Category',
+    amountLabel: 'Amount (৳ BDT)',
+    needsReviewTag: 'Confirm category',
+    duplicateTag: 'Duplicate suspect',
+    save: 'Save correction',
+    cancel: 'Cancel',
+    confirm: 'Accept',
+    edit: 'Edit',
+    inspectEvidence: 'Inspect proof',
+    confidence: 'Confidence',
+    uncategorized: 'Uncategorized',
+    emptyReview: 'All caught up. Every transaction is locked in verified standing.',
+  },
+  bn: {
+    title: 'তথ্যপ্রমাণ যাচাই ডেক্স',
+    subtitle:
+      'স্বয়ংক্রিয়ভাবে বের করা লেনদেনের তথ্য পর্যালোচনা করুন। ক্যাটাগরি সংশোধন বা ডুপ্লিকেট চিহ্নিত করে শতভাগ নির্ভুলতা নিশ্চিত করুন।',
+    tabNeedsReview: 'যাচাই প্রয়োজন',
+    tabDuplicates: 'ডুপ্লিকেট সন্দেহজনক',
+    tabAll: 'সব লেনদেন',
+    confirmAllPrompt: 'সবগুলো নিশ্চিত করুন',
+    editingTransaction: 'লেনদেন সম্পাদনা হচ্ছে',
+    merchantLabel: 'মার্চেন্ট / প্রাপক',
+    categoryLabel: 'ক্যাটাগরি',
+    amountLabel: 'পরিমাণ (৳ BDT)',
+    needsReviewTag: 'ক্যাটাগরি নির্ধারণ',
+    duplicateTag: 'ডুপ্লিকেট সন্দেহ',
+    save: 'সংরক্ষণ',
+    cancel: 'বাতিল',
+    confirm: 'নিশ্চিত করুন',
+    edit: 'সম্পাদনা',
+    inspectEvidence: 'প্রমাণ দেখুন',
+    confidence: 'নির্ভরযোগ্যতা',
+    uncategorized: 'শ্রেণিবিহীন',
+    emptyReview: 'সব যাচাই সম্পন্ন। প্রতিটি লেনদেন যাচাইকৃত অবস্থায় আছে।',
+  },
+} as const;
 
 export const ReviewView: React.FC<ReviewViewProps> = ({
   transactions,
@@ -31,54 +75,15 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
   const [editCategory, setEditCategory] = useState<string>('');
   const [editMerchant, setEditMerchant] = useState<string>('');
   const [editAmount, setEditAmount] = useState<number>(0);
-  const [filterType, setFilterType] = useState<'ALL' | 'NEEDS_REVIEW' | 'DUPLICATES'>('NEEDS_REVIEW');
+  const [filterType, setFilterType] = useState<FilterType>('NEEDS_REVIEW');
 
-  const t = {
-    en: {
-      title: 'EVIDENCE VERIFICATION DESK',
-      subtitle: 'Audit raw extraction candidates. Confirm predictions, reclassify categories, and resolve duplicate suspects.',
-      tabNeedsReview: 'NEEDS CONFIRMATION',
-      tabDuplicates: 'DUPLICATE SUSPECTS',
-      tabAll: 'ALL TRANSACTIONS',
-      confirmAllPrompt: 'ACCEPT ALL FILTERED',
-      amountConfirmed: 'Amount: Verified',
-      dateConfirmed: 'Date: Verified',
-      merchantConfirmed: 'Merchant: Matched',
-      needsReviewTag: 'CONFIRM CATEGORY',
-      duplicateTag: 'DUPLICATE SUSPECT',
-      save: 'SAVE CORRECTION',
-      cancel: 'CANCEL',
-      confirm: 'ACCEPT & LOCK',
-      inspectEvidence: 'INSPECT PROOF',
-      emptyReview: 'No pending items! All transactions are locked in verified standing.',
-      currency: '৳',
-    },
-    bn: {
-      title: 'তথ্যপ্রমাণ যাচাই ও পর্যালোচনা ডেক্স',
-      subtitle: 'স্বয়ংক্রিয়ভাবে বের করা লেনদেনের তথ্য পর্যালোচনা করুন। ক্যাটাগরি সংশোধন বা ডুপ্লিকেট চিহ্নিত করে শতভাগ নির্ভুলতা নিশ্চিত করুন।',
-      tabNeedsReview: 'যাচাই প্রয়োজন',
-      tabDuplicates: 'ডুপ্লিকেট সন্দেহজনক',
-      tabAll: 'সব লেনদেন',
-      confirmAllPrompt: 'সবগুলো নিশ্চিত করুন',
-      amountConfirmed: 'টাকা: নিশ্চিত',
-      dateConfirmed: 'তারিখ: নিশ্চিত',
-      merchantConfirmed: 'মার্চেন্ট: শনাক্ত',
-      needsReviewTag: 'ক্যাটাগরি নির্ধারণ',
-      duplicateTag: 'ডুপ্লিকেট সন্দেহ',
-      save: 'সংরক্ষণ',
-      cancel: 'বাতিল',
-      confirm: 'নিশ্চিত করুন',
-      inspectEvidence: 'প্রমাণপত্র দেখুন',
-      emptyReview: 'পর্যালোচনার জন্য কোনো পেন্ডিং লেনদেন নেই! সব লেনদেন যাচাইকৃত।',
-      currency: '৳',
-    },
-  }[locale];
+  const t = COPY[locale];
 
   let filtered = transactions;
   if (filterType === 'NEEDS_REVIEW') {
-    filtered = transactions.filter(t => t.status === 'NEEDS_REVIEW');
+    filtered = transactions.filter((tx) => tx.status === 'NEEDS_REVIEW');
   } else if (filterType === 'DUPLICATES') {
-    filtered = transactions.filter(t => t.is_duplicate_candidate);
+    filtered = transactions.filter((tx) => tx.is_duplicate_candidate);
   }
 
   const startEdit = (tx: Transaction) => {
@@ -105,120 +110,121 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
     }
   };
 
+  const tabs: { id: FilterType; label: string; count: number }[] = [
+    {
+      id: 'NEEDS_REVIEW',
+      label: t.tabNeedsReview,
+      count: transactions.filter((tx) => tx.status === 'NEEDS_REVIEW').length,
+    },
+    {
+      id: 'DUPLICATES',
+      label: t.tabDuplicates,
+      count: transactions.filter((tx) => tx.is_duplicate_candidate).length,
+    },
+    { id: 'ALL', label: t.tabAll, count: transactions.length },
+  ];
+
   return (
     <div className="space-y-8">
-      
-      {/* Header */}
-      <div className="border-b-2 border-[#171717] pb-6 flex flex-col sm:flex-row sm:items-baseline justify-between gap-4">
+      <header className="border-b border-hairline pb-6 flex flex-col sm:flex-row sm:items-baseline justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="tape-tag bg-[#FFD84D]">AUDIT WORKSPACE</span>
-            <span className="font-mono text-xs font-bold text-[#171717]/60">
-              CANDIDATE TRIAGE
-            </span>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="badge-pill">Audit workspace</span>
+            <span className="type-caption-uppercase text-muted">Candidate triage</span>
           </div>
-          <h1 className="font-display font-black text-3xl sm:text-4xl text-[#171717] tracking-tight">
-            {t.title}
-          </h1>
-          <p className="font-display text-sm text-[#171717]/80 mt-1">
-            {t.subtitle}
-          </p>
+          <h1 className="type-display-md text-ink">{t.title}</h1>
+          <p className="type-body-md text-body mt-2">{t.subtitle}</p>
         </div>
 
         {filtered.length > 0 && (
           <button
+            type="button"
             onClick={handleBulkConfirm}
-            className="brutalist-btn bg-[#B7F34A] text-[#171717] px-5 py-2.5 text-xs font-bold shrink-0"
+            className="btn-primary shrink-0 self-start"
           >
-            <span>{t.confirmAllPrompt} ({filtered.length})</span>
+            {t.confirmAllPrompt} ({filtered.length})
           </button>
         )}
+      </header>
+
+      <div
+        className="flex items-center gap-2 border-b border-hairline pb-3 overflow-x-auto"
+        role="tablist"
+        aria-label="Review queue filter"
+      >
+        {tabs.map((tab) => {
+          const isActive = filterType === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => setFilterType(tab.id)}
+              className={`type-caption px-3.5 py-2 rounded-pill border transition-colors whitespace-nowrap ${
+                isActive
+                  ? 'bg-primary text-on-primary border-primary'
+                  : 'bg-transparent text-body border-hairline hover:border-hairline-strong'
+              }`}
+            >
+              {tab.label} ({tab.count})
+            </button>
+          );
+        })}
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-2 border-b-2 border-[#171717] pb-3 overflow-x-auto">
-        <button
-          onClick={() => setFilterType('NEEDS_REVIEW')}
-          className={`font-display font-bold text-xs uppercase px-3 py-1.5 border-2 border-[#171717] transition-all cursor-pointer ${
-            filterType === 'NEEDS_REVIEW'
-              ? 'bg-[#FFD84D] text-[#171717] shadow-[2px_2px_0px_#171717]'
-              : 'bg-white text-[#171717] hover:bg-[#F6F1E8]'
-          }`}
-        >
-          {t.tabNeedsReview} ({transactions.filter(t => t.status === 'NEEDS_REVIEW').length})
-        </button>
-        <button
-          onClick={() => setFilterType('DUPLICATES')}
-          className={`font-display font-bold text-xs uppercase px-3 py-1.5 border-2 border-[#171717] transition-all cursor-pointer ${
-            filterType === 'DUPLICATES'
-              ? 'bg-[#FF725E] text-white shadow-[2px_2px_0px_#171717]'
-              : 'bg-white text-[#171717] hover:bg-[#F6F1E8]'
-          }`}
-        >
-          {t.tabDuplicates} ({transactions.filter(t => t.is_duplicate_candidate).length})
-        </button>
-        <button
-          onClick={() => setFilterType('ALL')}
-          className={`font-display font-bold text-xs uppercase px-3 py-1.5 border-2 border-[#171717] transition-all cursor-pointer ${
-            filterType === 'ALL'
-              ? 'bg-[#171717] text-white shadow-[2px_2px_0px_#171717]'
-              : 'bg-white text-[#171717] hover:bg-[#F6F1E8]'
-          }`}
-        >
-          {t.tabAll} ({transactions.length})
-        </button>
-      </div>
-
-      {/* Review Candidate List */}
       {filtered.length === 0 ? (
-        <div className="brutalist-card p-12 text-center bg-white">
-          <div className="font-display font-black text-2xl text-[#171717] mb-2">
-            ALL CAUGHT UP.
-          </div>
-          <p className="font-display text-sm text-[#171717]/80 max-w-md mx-auto">
-            {t.emptyReview}
-          </p>
+        <div className="feature-card p-12 text-center">
+          <h2 className="type-display-sm text-ink mb-2">All caught up</h2>
+          <p className="type-body-md text-body max-w-md mx-auto">{t.emptyReview}</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {filtered.map(tx => {
+          {filtered.map((tx) => {
             const isEditing = editingTxId === tx.id;
-            const catObj = categories.find(c => c.id === tx.category_id);
+            const catObj = categories.find((c) => c.id === tx.category_id);
             const categoryName = locale === 'bn' ? catObj?.name_bn || catObj?.name : catObj?.name;
+            // The sentinel cat_uncategorized is a real row in DEFAULT_CATEGORIES, so the
+            // lookup above resolves it. 'General' named no category anywhere.
+            const categoryLabel = categoryName || t.uncategorized;
+            // Only the EXTRACTED arm carries one. A hand-entered row gets no figure at
+            // all rather than a 0% stand-in.
+            const extractionConfidence = extractionConfidenceOf(tx);
+            const isLocked =
+              (tx.status as string) === 'ACCEPTED' || (tx.status as string) === 'CONFIRMED';
 
             return (
-              <div
-                key={tx.id}
-                className="brutalist-card p-5 sm:p-6 bg-white border-2 border-[#171717] shadow-[5px_5px_0px_#171717]"
-              >
+              <article key={tx.id} className="feature-card p-5 sm:p-6">
                 {isEditing ? (
-                  /* In-line Edit Mode */
                   <div className="space-y-4">
-                    <div className="font-mono text-xs font-bold uppercase text-[#171717]/70">
-                      EDITING TRANSACTION · ID: {tx.id}
-                    </div>
+                    <p className="type-caption-uppercase text-muted">
+                      {t.editingTransaction} · <span className="font-figure">{tx.id}</span>
+                    </p>
+
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
-                        <label className="font-mono text-[11px] font-bold block text-[#171717] mb-1">
-                          MERCHANT / COUNTERPARTY
+                        <label htmlFor={`m-${tx.id}`} className="type-caption text-body block mb-1">
+                          {t.merchantLabel}
                         </label>
                         <input
+                          id={`m-${tx.id}`}
                           type="text"
                           value={editMerchant}
-                          onChange={e => setEditMerchant(e.target.value)}
-                          className="w-full font-display text-sm font-bold border-2 border-[#171717] p-2 bg-[#F6F1E8] focus:bg-white"
+                          onChange={(e) => setEditMerchant(e.target.value)}
+                          className="text-input"
                         />
                       </div>
                       <div>
-                        <label className="font-mono text-[11px] font-bold block text-[#171717] mb-1">
-                          CATEGORY
+                        <label htmlFor={`c-${tx.id}`} className="type-caption text-body block mb-1">
+                          {t.categoryLabel}
                         </label>
                         <select
+                          id={`c-${tx.id}`}
                           value={editCategory}
-                          onChange={e => setEditCategory(e.target.value)}
-                          className="w-full font-display text-sm font-bold border-2 border-[#171717] p-2 bg-[#F6F1E8] focus:bg-white"
+                          onChange={(e) => setEditCategory(e.target.value)}
+                          className="text-input"
                         >
-                          {categories.map(c => (
+                          {categories.map((c) => (
                             <option key={c.id} value={c.id}>
                               {locale === 'bn' ? c.name_bn || c.name : c.name}
                             </option>
@@ -226,103 +232,106 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
                         </select>
                       </div>
                       <div>
-                        <label className="font-mono text-[11px] font-bold block text-[#171717] mb-1">
-                          AMOUNT (৳ BDT)
+                        <label htmlFor={`a-${tx.id}`} className="type-caption text-body block mb-1">
+                          {t.amountLabel}
                         </label>
                         <input
+                          id={`a-${tx.id}`}
                           type="number"
                           value={editAmount}
-                          onChange={e => setEditAmount(Number(e.target.value))}
-                          className="w-full font-display text-sm font-bold border-2 border-[#171717] p-2 bg-[#F6F1E8] focus:bg-white"
+                          onChange={(e) => setEditAmount(Number(e.target.value))}
+                          className="text-input font-figure"
                         />
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 pt-2">
-                      <button
-                        onClick={() => handleSave(tx.id)}
-                        className="brutalist-btn bg-[#B7F34A] text-[#171717] px-4 py-2 text-xs font-bold"
-                      >
-                        <span>{t.save}</span>
+                    <div className="flex flex-wrap items-center gap-3 pt-2">
+                      <button type="button" onClick={() => handleSave(tx.id)} className="btn-primary">
+                        {t.save}
                       </button>
                       <button
+                        type="button"
                         onClick={() => setEditingTxId(null)}
-                        className="brutalist-btn bg-white text-[#171717] px-4 py-2 text-xs font-bold"
+                        className="btn-outline"
                       >
-                        <span>{t.cancel}</span>
+                        {t.cancel}
                       </button>
                     </div>
                   </div>
                 ) : (
-                  /* Standard Display Mode */
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="space-y-1.5">
+                    <div className="space-y-2 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         {tx.status === 'NEEDS_REVIEW' && (
-                          <span className="font-mono text-[10px] font-bold bg-[#FFD84D] border border-[#171717] px-1.5 py-0.5">
-                            {t.needsReviewTag}
-                          </span>
+                          <span className="badge-pill">{t.needsReviewTag}</span>
                         )}
                         {tx.is_duplicate_candidate && (
-                          <span className="font-mono text-[10px] font-bold bg-[#FF725E] text-white px-1.5 py-0.5">
+                          <span className="type-caption-uppercase text-error">
                             {t.duplicateTag}
                           </span>
                         )}
-                        <span className="font-mono text-xs text-[#171717]/60">
+                        <span className="font-figure type-caption text-muted">
                           {tx.transaction_date}
                         </span>
-                        <span className="font-mono text-xs font-bold bg-[#F6F1E8] border border-[#171717] px-1.5 py-0.5">
-                          {categoryName || 'General'}
+                        <span
+                          className={`badge-pill ${
+                            /[ঀ-৿]/.test(categoryLabel) ? 'font-bangla tracking-normal' : ''
+                          }`}
+                        >
+                          {categoryLabel}
                         </span>
                       </div>
 
-                      <div className="font-display font-black text-lg text-[#171717]">
-                        {tx.merchant_name}
-                      </div>
+                      <p className="type-title-sm text-ink">{tx.merchant_name}</p>
 
                       {tx.raw_text_snippet && (
-                        <div className="font-mono text-xs text-[#171717]/70 bg-[#F6F1E8] border border-[#171717]/30 px-2 py-1 max-w-xl truncate">
-                          Line: "{tx.raw_text_snippet}"
-                        </div>
+                        <p className="font-figure type-caption text-muted-soft bg-canvas border border-hairline rounded-xs px-2 py-1 max-w-xl truncate">
+                          {tx.raw_text_snippet}
+                        </p>
                       )}
                     </div>
 
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4 shrink-0">
                       <div className="text-left sm:text-right">
-                        <div className="text-2xl font-display font-black text-[#171717]">
+                        <p className="font-figure type-display-sm text-ink">
                           ৳{tx.amount.toLocaleString()}
-                        </div>
-                        <div className="font-mono text-[10px] text-[#171717]/60">
-                          CONFIDENCE: {Math.round(tx.confidence * 100)}%
-                        </div>
+                        </p>
+                        {extractionConfidence !== null && (
+                          <p className="type-caption text-muted-soft">
+                            {t.confidence} {Math.round(extractionConfidence * 100)}%
+                          </p>
+                        )}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
+                          type="button"
                           onClick={() => onInspectEvidence(tx)}
-                          className="brutalist-btn brutalist-btn-sm bg-white text-[#171717] text-xs font-bold"
+                          className="btn-outline btn-sm"
                           title="Audit raw document coordinates"
                         >
-                          <FileText className="w-3.5 h-3.5 mr-1" />
+                          <FileText className="w-3.5 h-3.5" aria-hidden="true" />
                           <span>{t.inspectEvidence}</span>
                         </button>
 
                         <button
+                          type="button"
                           onClick={() => startEdit(tx)}
-                          className="brutalist-btn brutalist-btn-sm bg-[#FFD84D] text-[#171717] text-xs font-bold"
+                          className="btn-outline btn-sm"
                           title="Correct merchant or category"
                         >
-                          <Edit3 className="w-3.5 h-3.5 mr-1" />
-                          <span>EDIT</span>
+                          <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>{t.edit}</span>
                         </button>
 
-                        {(tx.status as string) !== 'ACCEPTED' && (tx.status as string) !== 'CONFIRMED' && (
+                        {!isLocked && (
                           <button
+                            type="button"
                             onClick={() => onConfirmTransaction(tx.id)}
-                            className="brutalist-btn brutalist-btn-sm bg-[#B7F34A] text-[#171717] text-xs font-bold"
+                            className="btn-primary btn-sm"
                             title="Accept and lock into verified ledger"
                           >
-                            <Check className="w-3.5 h-3.5 mr-1 stroke-[3]" />
+                            <Check className="w-3.5 h-3.5" aria-hidden="true" />
                             <span>{t.confirm}</span>
                           </button>
                         )}
@@ -330,12 +339,11 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
                     </div>
                   </div>
                 )}
-              </div>
+              </article>
             );
           })}
         </div>
       )}
-
     </div>
   );
 };

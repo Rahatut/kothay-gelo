@@ -13,47 +13,35 @@ export const FinalCTASection: React.FC<FinalCTASectionProps> = ({
   onOpenDashboard,
 }) => {
   return (
-    <section className="py-24 md:py-36 border-b border-[#171717] bg-[#F6F1E8]">
-      <div className="max-w-[1440px] mx-auto px-6 sm:px-12 md:px-16">
-        <div className="max-w-3xl">
-          
-          <div className="font-mono text-xs uppercase tracking-[0.2em] text-[#171717]/60 mb-6">
-            SO...
-          </div>
+    <section className="relative band bg-canvas border-b border-hairline overflow-hidden">
+      <div className="orb orb-sky w-[560px] h-[560px] -top-24 left-1/2 -translate-x-1/2 opacity-60" aria-hidden="true" />
 
-          <h2 className="font-display font-medium text-4xl sm:text-5xl md:text-6xl text-[#171717] tracking-tight leading-[1.05] mb-6">
-            WHERE DID YOUR MONEY GO?
-          </h2>
+      <div className="shell relative z-10 text-center">
+        <p className="type-caption-uppercase text-muted mb-6">So</p>
 
-          <p className="font-display text-lg sm:text-xl text-[#171717]/70 leading-relaxed mb-10">
-            Open the investigation desk or upload your transactions to detect hidden micro-leaks.
-          </p>
+        <h2 className="type-display-lg text-ink mb-6">Where did your money go?</h2>
 
-          <div className="flex flex-wrap items-center gap-4">
-            {onOpenDashboard && (
-              <button
-                onClick={onOpenDashboard}
-                className="btn-accent-green inline-flex items-center gap-2.5 text-base sm:text-lg"
-              >
-                <span>Open Financial Dashboard</span>
-                <ArrowUpRight className="w-5 h-5" />
-              </button>
-            )}
+        <p className="type-body-md text-body mb-10 max-w-xl mx-auto">
+          Open the investigation desk or upload your transactions to detect hidden micro-leaks.
+        </p>
 
-            <button
-              onClick={onOpenUpload}
-              className="btn-primary inline-flex items-center gap-2.5 text-base sm:text-lg"
-            >
-              <span>Upload statements</span>
-              <ArrowUpRight className="w-5 h-5" />
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {onOpenDashboard && (
+            <button type="button" onClick={onOpenDashboard} className="btn-primary">
+              <span>Open financial dashboard</span>
+              <ArrowUpRight className="w-4 h-4" aria-hidden="true" />
             </button>
-          </div>
+          )}
 
-          <div className="mt-8 text-xs font-mono text-[#171717]/50">
-            Free to use · No bank credentials requested · Export or delete anytime
-          </div>
-
+          <button type="button" onClick={onOpenUpload} className="btn-outline">
+            <span>Upload statements</span>
+            <ArrowUpRight className="w-4 h-4" aria-hidden="true" />
+          </button>
         </div>
+
+        <p className="type-caption text-muted-soft mt-8">
+          No bank credentials requested · Export or delete anytime
+        </p>
       </div>
     </section>
   );

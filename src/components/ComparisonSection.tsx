@@ -4,114 +4,86 @@ interface ComparisonSectionProps {
   onInvestigate?: () => void;
 }
 
+const TYPICAL_APP_ROWS = [
+  { label: 'Income', value: '৳85,000' },
+  { label: 'Expenses', value: '৳68,400' },
+  { label: 'Balance', value: '৳16,600' },
+  { label: 'Transactions', value: '64 items logged' },
+];
+
 export const ComparisonSection: React.FC<ComparisonSectionProps> = ({ onInvestigate }) => {
   return (
-    <section className="py-20 md:py-28 border-b border-[#171717] bg-[#F6F1E8]">
-      <div className="max-w-[1440px] mx-auto px-6 sm:px-12 md:px-16">
-        
-        {/* Section Header: Editorial statement */}
+    <section className="band bg-canvas border-b border-hairline">
+      <div className="shell">
         <div className="max-w-3xl mb-16">
-          <div className="font-mono text-xs uppercase tracking-[0.2em] text-[#171717]/60 mb-3">
-            THE DIFFERENCE
-          </div>
-          <h2 className="font-display font-medium text-3xl sm:text-4xl md:text-5xl text-[#171717] tracking-tight leading-[1.15]">
-            Don't just show the numbers.
-            <span className="block text-[#171717]/50 mt-1">
-              Explain them.
-            </span>
+          <p className="type-caption-uppercase text-muted mb-3">The difference</p>
+          <h2 className="type-display-lg text-ink">
+            Don&rsquo;t just show the numbers.
+            <span className="block text-muted mt-1">Explain them.</span>
           </h2>
         </div>
 
-        {/* Restrained Side-by-Side Comparison */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12">
-          
-          {/* Typical App: Passive list of numbers */}
-          <div className="bg-[#FFFFFF] border border-[#171717] p-8 sm:p-10 flex flex-col justify-between">
+          <div className="feature-card p-8 sm:p-10 flex flex-col justify-between">
             <div>
-              <div className="font-mono text-xs uppercase tracking-widest text-[#171717]/40 mb-8 pb-3 border-b border-[#171717]/15">
-                TYPICAL FINANCE APP
-              </div>
+              <p className="type-caption-uppercase text-muted-soft mb-8 pb-3 border-b border-hairline">
+                Typical finance app
+              </p>
 
-              <div className="space-y-6">
-                <div>
-                  <div className="font-mono text-xs uppercase text-[#171717]/50 mb-1">Income</div>
-                  <div className="font-display font-medium text-xl text-[#171717]">৳85,000</div>
-                </div>
-
-                <div>
-                  <div className="font-mono text-xs uppercase text-[#171717]/50 mb-1">Expenses</div>
-                  <div className="font-display font-medium text-xl text-[#171717]">৳68,400</div>
-                </div>
-
-                <div>
-                  <div className="font-mono text-xs uppercase text-[#171717]/50 mb-1">Balance</div>
-                  <div className="font-display font-medium text-xl text-[#171717]">৳16,600</div>
-                </div>
-
-                <div>
-                  <div className="font-mono text-xs uppercase text-[#171717]/50 mb-1">Transactions</div>
-                  <div className="font-display font-medium text-xl text-[#171717]">64 items logged</div>
-                </div>
-              </div>
+              <dl className="space-y-6">
+                {TYPICAL_APP_ROWS.map((row) => (
+                  <div key={row.label}>
+                    <dt className="type-caption text-muted mb-1">{row.label}</dt>
+                    <dd className="font-figure type-title-sm text-ink">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
             </div>
 
-            <div className="pt-8 mt-8 border-t border-[#171717]/15 text-xs font-mono text-[#171717]/50">
+            <p className="type-caption text-muted-soft pt-8 mt-8 border-t border-hairline">
               Raw data without context or next steps.
-            </div>
+            </p>
           </div>
 
-          {/* Kothay Gelo?: Explanatory insights, green only for final savings number */}
-          <div className="bg-[#FFFFFF] border border-[#171717] p-8 sm:p-10 flex flex-col justify-between relative">
+          <div className="feature-card p-8 sm:p-10 flex flex-col justify-between">
             <div>
-              <div className="font-mono text-xs uppercase tracking-widest text-[#171717] font-bold mb-8 pb-3 border-b border-[#171717]/15 flex items-center justify-between">
-                <span>KOTHAY GELO?</span>
-                <span className="text-[11px] font-mono text-[#171717]/50 font-normal">EXPLAINED SPENDING</span>
-              </div>
+              <p className="type-caption-uppercase text-ink mb-8 pb-3 border-b border-hairline flex items-center justify-between">
+                <span>Kothay Gelo?</span>
+                <span className="type-caption text-muted-soft font-normal">Explained spending</span>
+              </p>
 
               <div className="space-y-6">
-                <div className="pb-4 border-b border-[#171717]/10">
-                  <p className="font-display text-base sm:text-lg text-[#171717] leading-snug">
-                    You spent <span className="font-bold">28% more</span> on food delivery than last month.
-                  </p>
-                </div>
+                <p className="type-body-md text-ink pb-4 border-b border-hairline-soft">
+                  You spent <span className="font-medium">28% more</span> on food delivery than
+                  last month.
+                </p>
 
-                <div className="pb-4 border-b border-[#171717]/10">
-                  <p className="font-display text-base sm:text-lg text-[#171717] leading-snug">
-                    Your small purchases added up to <span className="font-bold">৳3,240</span>.
-                  </p>
-                </div>
+                <p className="type-body-md text-ink pb-4 border-b border-hairline-soft">
+                  Your small purchases added up to <span className="font-figure font-medium">৳3,240</span>.
+                </p>
 
                 <div>
-                  <div className="font-mono text-xs uppercase tracking-wider text-[#171717]/60 mb-2">
-                    Actionable recovery
-                  </div>
-                  <p className="font-display text-base sm:text-lg text-[#171717] leading-snug">
+                  <p className="type-caption-uppercase text-muted mb-2">Actionable recovery</p>
+                  <p className="type-body-md text-ink">
                     You could realistically save{' '}
-                    <span className="font-bold bg-[#B7F34A] px-2 py-0.5 border border-[#171717] inline-block mt-1 sm:mt-0">
-                      ৳4,200 next month.
-                    </span>
+                    <span className="font-figure font-medium text-success">৳4,200 next month</span>.
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="pt-8 mt-8 border-t border-[#171717]/15 flex items-center justify-between">
-              <span className="text-xs font-mono text-[#171717]/70">
+            <div className="pt-8 mt-8 border-t border-hairline flex items-center justify-between gap-4">
+              <span className="type-caption text-muted">
                 Pattern recognition applied to every transaction.
               </span>
               {onInvestigate && (
-                <button
-                  onClick={onInvestigate}
-                  className="text-xs font-mono font-bold text-[#171717] underline hover:no-underline cursor-pointer"
-                >
-                  View ledger →
+                <button type="button" onClick={onInvestigate} className="btn-text">
+                  View ledger
                 </button>
               )}
             </div>
           </div>
-
         </div>
-
       </div>
     </section>
   );

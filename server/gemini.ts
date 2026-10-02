@@ -26,7 +26,16 @@ export interface ExtractedCandidate {
   merchant: string;
   description: string;
   direction: 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'REFUND';
-  confidence: number;
+  /**
+   * Extraction confidence, or null when the extractor did not establish one.
+   *
+   * Nullable rather than defaulted. A missing confidence means the row was
+   * extracted without the model stating how sure it was, and substituting a
+   * plausible number records certainty that does not exist. A null travels
+   * through to the ledger as an ENGINE_DERIVED provenance, which carries no
+   * extraction confidence, so no view can display one.
+   */
+  confidence: number | null;
   rawText: string;
   evidenceSnippet: string;
 }
@@ -89,6 +98,31 @@ function markModelDemandCooldown(model: string) {
 /**
  * Server-side document extraction using Gemini with multi-model fallback & backoff
  */
+/**
+ * The extraction payload, with truncation stated rather than silent.
+ *
+ * The document is bounded so one enormous statement cannot blow the context
+ * window, but a bare `content.slice(0, 15000)` drops rows and says nothing: the
+ * user sees a short ledger and every total built from it is wrong by an unknown
+ * amount. When the text is cut, the model is told the set may be incomplete so it
+ * can say so rather than presenting the rows it received as the whole statement.
+ *
+ * Exported so a test can hold the boundary, since this was fixed once and then
+ * silently lost in an unrelated edit to the same file.
+ */
+export const MAX_EXTRACT_CHARS = 15_000;
+
+export function buildExtractionPayload(prompt: string, content: string): string {
+  if (content.length <= MAX_EXTRACT_CHARS) {
+    return `${prompt}\n\nDOCUMENT TEXT:\n${content}`;
+  }
+  const note =
+    `\n\n[Note: this document is ${content.length} characters. Only the first ` +
+    `${MAX_EXTRACT_CHARS} were sent, so the transactions below may be an ` +
+    'incomplete set. Say so rather than presenting them as the whole statement.]';
+  return `${prompt}${note}\n\nDOCUMENT TEXT:\n${content.slice(0, MAX_EXTRACT_CHARS)}`;
+}
+
 export async function extractWithGemini(
   content: string,
   isBase64Image: boolean = false,
@@ -109,20 +143,21 @@ Rules:
 4. If unknown direction, classify debit as EXPENSE and credit as INCOME.`;
 
   let contentsPayload: any;
-  if (isBase64Image) {
+  const isPdf = mimeType === 'application/pdf' || content?.startsWith('JVBERi0');
+  if (isBase64Image || isPdf) {
     contentsPayload = {
       parts: [
         {
           inlineData: {
             data: content,
-            mimeType: mimeType || 'image/png',
+            mimeType: mimeType || (isPdf ? 'application/pdf' : 'image/png'),
           },
         },
         { text: prompt },
       ],
     };
   } else {
-    contentsPayload = `${prompt}\n\nDOCUMENT TEXT:\n${content.slice(0, 15000)}`;
+    contentsPayload = buildExtractionPayload(prompt, content);
   }
 
   // Prioritize gemini-3.1-flash-lite for instant response and peak resilience, with graceful multi-model fallbacks
@@ -167,15 +202,48 @@ Rules:
       if (!text) return [];
       const parsed = JSON.parse(text);
       if (Array.isArray(parsed)) {
-        return parsed.map(p => ({
-          date: p.date || new Date().toISOString().slice(0, 10),
-          amount: Math.abs(Number(p.amount) || 0),
+        // A row the model could not read is dropped, not completed.
+        //
+        // The previous version substituted today's date for a missing one, zero
+        // for a missing amount, and EXPENSE for a missing direction. Dating a row
+        // today files it in the wrong period, which is the failure that once
+        // evicted an entire dashboard; the zero then fails the schema's
+        // `amount > 0` check and aborts the whole write. All three sat one line
+        // above the `|| 0.9` confidence fix that had already been made for
+        // exactly this reason.
+        const DIRECTIONS = ['EXPENSE', 'INCOME', 'TRANSFER', 'REFUND'];
+        const usable = parsed.filter((p: any) => {
+          const amount = Math.abs(Number(p?.amount));
+          return Boolean(p?.date) && Number.isFinite(amount) && amount > 0;
+        });
+
+        if (usable.length < parsed.length) {
+          // Logged rather than passed over: the row count a user sees should
+          // match what the model returned, or a short ledger is a mystery.
+          console.info(
+            `[Gemini] dropped ${parsed.length - usable.length} candidate(s) with no date or no positive amount`,
+          );
+        }
+
+        return usable.map((p: any) => ({
+          date: String(p.date),
+          amount: Math.abs(Number(p.amount)),
+          // An honest label for an absent merchant, not a fabricated one: it says
+          // so rather than naming a shop that may not exist.
           merchant: String(p.merchant || 'Unknown Merchant'),
           description: String(p.description || p.merchant || 'Transaction'),
-          direction: (['EXPENSE', 'INCOME', 'TRANSFER', 'REFUND'].includes(p.direction)
-            ? p.direction
-            : 'EXPENSE') as any,
-          confidence: Number(p.confidence) || 0.9,
+          // An unrecognised direction falls back to the same documented statement
+          // convention the deterministic parser applies -- a statement lists
+          // debits unless a row is marked otherwise -- rather than to a bare
+          // literal inside a map callback.
+          direction: (DIRECTIONS.includes(p.direction) ? p.direction : 'EXPENSE') as any,
+          // Null when absent or unparseable. The previous `Number(x) || 0.9`
+          // silently fabricated 0.9 for every row the model left unqualified,
+          // which then entered the ledger and every downstream total.
+          confidence:
+            typeof p.confidence === 'number' && Number.isFinite(p.confidence)
+              ? Math.min(Math.max(p.confidence, 0), 1)
+              : null,
           rawText: String(p.rawText || ''),
           evidenceSnippet: String(p.evidenceSnippet || p.rawText || ''),
         }));

@@ -1,11 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { 
-  FileText, 
-  Check, 
-  ArrowRight, 
-  Database,
-  AlertCircle
-} from 'lucide-react';
+import { FileText, Database, AlertCircle, ArrowRight, Check } from 'lucide-react';
 import { ProcessingStage, DocumentRecord } from '../types';
 
 interface UploadViewProps {
@@ -17,16 +11,95 @@ interface UploadViewProps {
 }
 
 const STAGES: { key: ProcessingStage; labelEn: string; labelBn: string }[] = [
-  { key: 'QUEUED', labelEn: 'Upload Received & Queued', labelBn: 'আপলোড গ্রহণ ও সারিবদ্ধকরণ' },
-  { key: 'VALIDATING', labelEn: 'Validating File Integrity & MIME', labelBn: 'ফাইলের সততা ও ফরম্যাট যাচাই' },
-  { key: 'CLASSIFYING', labelEn: 'Classifying Statement Source (bKash / Bank / CSV)', labelBn: 'স্টেটমেন্টের উৎস নির্ধারণ (বিকাশ / ব্যাংক / সিএসভি)' },
-  { key: 'EXTRACTING', labelEn: 'OCR & Transaction Candidate Extraction', labelBn: 'ওসিআর এবং লেনদেন তথ্য শনাক্তকরণ' },
-  { key: 'NORMALIZING', labelEn: 'Normalizing Counterparties & Merchant Rules', labelBn: 'মার্চেন্ট নাম ও লেনদেনের ধরন স্বাভাবিকীকরণ' },
-  { key: 'CATEGORIZING', labelEn: 'Applying Bangladesh Category Taxonomy', labelBn: 'বাংলাদেশের ক্যাটাগরি ম্যাপিং প্রয়োগ' },
-  { key: 'DEDUPLICATING', labelEn: 'Detecting Duplicate Candidates & Overlaps', labelBn: 'ডুপ্লিকেট বা দ্বৈত লেনদেন শনাক্তকরণ' },
-  { key: 'VALIDATING_RESULTS', labelEn: 'Deterministic Financial Sanity Validation', labelBn: 'গাণিতিক নির্ভুলতা ও যাচাই' },
-  { key: 'COMPLETED', labelEn: 'Ledger Synchronized & Evidence Anchored', labelBn: 'খতিয়ান প্রস্তুত ও প্রমাণপত্র সংযুক্ত' },
+  { key: 'QUEUED', labelEn: 'Upload received and queued', labelBn: 'আপলোড গ্রহণ ও সারিবদ্ধকরণ' },
+  {
+    key: 'VALIDATING',
+    labelEn: 'Validating file integrity and format',
+    labelBn: 'ফাইলের সততা ও ফরম্যাট যাচাই',
+  },
+  {
+    key: 'CLASSIFYING',
+    labelEn: 'Classifying statement source (bKash / bank / CSV)',
+    labelBn: 'স্টেটমেন্টের উৎস নির্ধারণ (বিকাশ / ব্যাংক / সিএসভি)',
+  },
+  {
+    key: 'EXTRACTING',
+    labelEn: 'OCR and transaction candidate extraction',
+    labelBn: 'ওসিআর এবং লেনদেন তথ্য শনাক্তকরণ',
+  },
+  {
+    key: 'NORMALIZING',
+    labelEn: 'Normalizing counterparties and merchant rules',
+    labelBn: 'মার্চেন্ট নাম ও লেনদেনের ধরন স্বাভাবিকীকরণ',
+  },
+  {
+    key: 'CATEGORIZING',
+    labelEn: 'Applying Bangladesh category taxonomy',
+    labelBn: 'বাংলাদেশের ক্যাটাগরি ম্যাপিং প্রয়োগ',
+  },
+  {
+    key: 'DEDUPLICATING',
+    labelEn: 'Detecting duplicate candidates and overlaps',
+    labelBn: 'ডুপ্লিকেট বা দ্বৈত লেনদেন শনাক্তকরণ',
+  },
+  {
+    key: 'VALIDATING_RESULTS',
+    labelEn: 'Deterministic financial sanity validation',
+    labelBn: 'গাণিতিক নির্ভুলতা ও যাচাই',
+  },
+  {
+    key: 'COMPLETED',
+    labelEn: 'Ledger synchronized and evidence anchored',
+    labelBn: 'খতিয়ান প্রস্তুত ও প্রমাণপত্র সংযুক্ত',
+  },
 ];
+
+const COPY = {
+  en: {
+    title: 'Drop the evidence',
+    subtitle:
+      'Upload bank statements, bKash or Nagad histories. Processed in-session and never stored.',
+    dragPrompt: 'Drop your statement here',
+    orChoose: 'or',
+    chooseFiles: 'Choose a file',
+    supportedTypes: 'PDF, JPG, PNG, or CSV up to 25 MB',
+    dragActiveText: 'Drop it. We are ready.',
+    processing: 'Processing',
+    process: 'Process statement',
+    stage: 'Stage',
+    active: 'Active',
+    candidatesAnchored: 'candidates anchored to raw document bounding boxes.',
+    seeMoney: 'See your money',
+    testSampleTitle: 'Or test immediately with sample evidence',
+    testSampleDesc:
+      'Load authentic bKash, City Bank, and Pathao statements pre-formatted for Dhaka consumers.',
+    loadSampleBtn: 'Load sample statements',
+    loading: 'Loading',
+    documentHistory: 'Previous processed statements',
+    statements: 'statements',
+  },
+  bn: {
+    title: 'প্রমাণপত্র আপলোড করুন',
+    subtitle: 'বিকাশ, নগদ বা ব্যাংক স্টেটমেন্ট আপলোড করুন। সাইশনেই প্রক্রিয়া হয়, সংরক্ষণ হয় না।',
+    dragPrompt: 'আপনার স্টেটমেন্ট ফাইলটি এখানে টেনে আনুন',
+    orChoose: 'অথবা',
+    chooseFiles: 'ফাইল পছন্দ করুন',
+    supportedTypes: 'পিডিএফ, জেপিজি, পিএনজি, বা সিএসভি সর্বোচ্চ ২৫ এমবি',
+    dragActiveText: 'ছেড়ে দিন, আমরা প্রস্তুত।',
+    processing: 'প্রক্রিয়াধীন',
+    process: 'প্রক্রিয়া করুন',
+    stage: 'ধাপ',
+    active: 'সক্রিয়',
+    candidatesAnchored: 'টি লেনদেন মূল ডকুমেন্টের সাথে সংযুক্ত।',
+    seeMoney: 'হিসাব দেখুন',
+    testSampleTitle: 'অথবা নমুনা তথ্যপ্রমাণ দিয়ে তাৎক্ষণিক পরীক্ষা করুন',
+    testSampleDesc: 'প্রকৃত বিকাশ ও ব্যাংক স্টেটমেন্ট লোড করে সাথে সাথে পরীক্ষা করুন।',
+    loadSampleBtn: 'নমুনা স্টেটমেন্ট লোড করুন',
+    loading: 'লোড হচ্ছে',
+    documentHistory: 'পূর্বে প্রসেস করা স্টেটমেন্টসমূহ',
+    statements: 'টি স্টেটমেন্ট',
+  },
+} as const;
 
 export const UploadView: React.FC<UploadViewProps> = ({
   locale,
@@ -39,46 +112,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [currentStage, setCurrentStage] = useState<ProcessingStage | null>(null);
-  const [extractedCount, setExtractedCount] = useState<number>(0);
+  const [extractedCount, setExtractedCount] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const t = {
-    en: {
-      title: 'DROP THE EVIDENCE',
-      subtitle: 'Upload bank statements, bKash/Nagad histories, or receipts. Processed in your private tenant space.',
-      dragPrompt: 'DROP YOUR TRANSACTIONS HERE',
-      orChoose: 'or',
-      chooseFiles: '[ CHOOSE FILES ]',
-      supportedTypes: 'PDF · JPG · PNG · CSV (Up to 25MB)',
-      dragActiveText: 'DROP IT. WE\'RE READY.',
-      readingText: 'READING YOUR TRANSACTIONS…',
-      connectingText: 'CONNECTING THE DOTS…',
-      successFound: 'FOUND THE CLUES.',
-      seeMoney: 'SEE YOUR MONEY →',
-      testSampleTitle: 'OR TEST IMMEDIATELY WITH SAMPLE EVIDENCE',
-      testSampleDesc: 'Load authentic bKash, City Bank, and Pathao statements pre-formatted for Dhaka consumers.',
-      loadSampleBtn: 'LOAD GOLDEN SAMPLE STATEMENTS',
-      documentHistory: 'PREVIOUS PROCESSED EVIDENCE RECORDS',
-    },
-    bn: {
-      title: 'প্রমাণপত্র আপলোড করুন',
-      subtitle: 'বিকাশ, নগদ বা ব্যাংক স্টেটমেন্ট আপলোড করুন। আপনার আর্থিক তথ্য সম্পূর্ণ এনক্রিপ্টেড থাকবে।',
-      dragPrompt: 'আপনার স্টেটমেন্ট ফাইলটি এখানে টেনে আনুন',
-      orChoose: 'অথবা',
-      chooseFiles: '[ ফাইল পছন্দ করুন ]',
-      supportedTypes: 'পিডিএফ · জেপিজি · পিএনজি · সিএসভি (সর্বোচ্চ ২৫ এমবি)',
-      dragActiveText: 'ছেড়ে দিন, আমরা প্রস্তুত।',
-      readingText: 'লেনদেন তথ্য পড়া হচ্ছে…',
-      connectingText: 'তথ্যসূত্র সংযুক্ত করা হচ্ছে…',
-      successFound: 'প্রমাণপত্র পাওয়া গেছে।',
-      seeMoney: 'হিসাব পর্যালোচনা করুন →',
-      testSampleTitle: 'অথবা নমুনা তথ্যপ্রমাণ দিয়ে তাৎক্ষণিক পরীক্ষা করুন',
-      testSampleDesc: 'প্রকৃত বিকাশ ও ব্যাংক স্টেটমেন্ট লোড করে সাথে সাথে পরীক্ষা করুন।',
-      loadSampleBtn: 'নমুনা স্টেটমেন্ট লোড করুন',
-      documentHistory: 'পূর্বে প্রসেস করা স্টেটমেন্টসমূহ',
-    },
-  }[locale];
+  const t = COPY[locale];
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -132,11 +170,27 @@ export const UploadView: React.FC<UploadViewProps> = ({
           reader.onerror = reject;
           reader.readAsDataURL(selectedFile);
         });
+      } else if (selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf')) {
+        // PDFs are posted as base64 bytes, not as text.
+        //
+        // `selectedFile.text()` decodes the binary as UTF-8 and loses everything that
+        // is not valid UTF-8, so the text layer never reached the server and every
+        // PDF was refused as a scan. The server extracts the text with a real parser.
+        content = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(',')[1] || result);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(selectedFile);
+        });
       } else {
         content = await selectedFile.text();
       }
 
       const uploadRes = await fetch('/v1/uploads', {
+        credentials: 'include',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -158,13 +212,18 @@ export const UploadView: React.FC<UploadViewProps> = ({
         throw new Error('No document identifier returned from upload service');
       }
 
-      // Poll pipeline stages
       let isComplete = false;
       let pollAttempts = 0;
-      while (!isComplete && pollAttempts < 30) {
+      // The poll interval is 250 ms. The visible minimum dwell is applied in the
+      // stage list below, not here: the server used to sleep 400 ms per stage
+      // transition purely so this list had something to animate, which added
+      // ~2.8 s of pure latency to every upload against a 20 s budget.
+      const POLL_INTERVAL_MS = 250;
+      const MAX_POLLS = 80;
+      while (!isComplete && pollAttempts < MAX_POLLS) {
         pollAttempts++;
-        await new Promise(r => setTimeout(r, 600));
-        const statusRes = await fetch(`/v1/uploads/${docId}/status`);
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        const statusRes = await fetch(`/v1/uploads/${docId}/status`, { credentials: 'include' });
         if (statusRes.ok) {
           const statusData = await statusRes.json();
           const doc = statusData.data || statusData;
@@ -175,15 +234,22 @@ export const UploadView: React.FC<UploadViewProps> = ({
           if (doc.stage === 'COMPLETED' || doc.status === 'PROCESSED') {
             isComplete = true;
             setCurrentStage('COMPLETED');
-            setExtractedCount(doc.extracted_candidate_count || 12);
+            // Null when extraction produced no count. Absence is rendered as
+            // absence; the previous `|| 12` invented a row count and displayed
+            // it as though twelve transactions had been read.
+            setExtractedCount(doc.extracted_candidate_count ?? null);
           } else if (doc.stage === 'FAILED' || doc.status === 'FAILED') {
             throw new Error(doc.error_message || 'Processing stage failed');
           }
         }
       }
-    } catch (err: any) {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       console.error('Upload flow error:', err);
-      setUploadError(err.message || 'We couldn\'t read this file. Try a clearer image or upload the original PDF.');
+      setUploadError(
+        message ||
+          "We couldn't read this file. Try a clearer image or upload the original PDF.",
+      );
     } finally {
       setIsUploading(false);
     }
@@ -191,33 +257,22 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
   return (
     <div className="space-y-8">
-      
-      {/* Header */}
-      <div className="border-b-2 border-[#171717] pb-4">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="tape-tag bg-[#B7F34A]">EVIDENCE INGESTION</span>
-          <span className="font-mono text-xs uppercase font-bold text-[#171717]/60">
-            SECURE & DETERMINISTIC
-          </span>
+      <header className="border-b border-hairline pb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="badge-pill">Evidence ingestion</span>
+          <span className="type-caption-uppercase text-muted">Deterministic</span>
         </div>
-        <h1 className="font-display font-black text-3xl sm:text-4xl text-[#171717] tracking-tight">
-          {t.title}
-        </h1>
-        <p className="font-display text-sm text-[#171717]/80 mt-1">
-          {t.subtitle}
-        </p>
-      </div>
+        <h1 className="type-display-md text-ink">{t.title}</h1>
+        <p className="type-body-md text-body mt-2">{t.subtitle}</p>
+      </header>
 
-      {/* Main Interactive Brutalist Dropzone */}
       <div
         onDragEnter={handleDrag}
         onDragLeave={handleDrag}
         onDragOver={handleDrag}
         onDrop={handleDrop}
-        className={`border-4 border-dashed p-8 sm:p-12 text-center transition-all ${
-          dragActive
-            ? 'border-[#171717] bg-[#B7F34A] shadow-[8px_8px_0px_#171717]'
-            : 'border-[#171717] bg-white shadow-[6px_6px_0px_#171717]'
+        className={`border border-dashed rounded-xl p-8 sm:p-12 text-center transition-colors ${
+          dragActive ? 'border-hairline-strong bg-canvas-soft' : 'border-hairline bg-surface-card'
         }`}
       >
         <input
@@ -226,173 +281,162 @@ export const UploadView: React.FC<UploadViewProps> = ({
           accept=".pdf,.jpg,.jpeg,.png,.csv"
           onChange={handleFileChange}
           className="hidden"
+          aria-label={t.chooseFiles}
         />
 
         <div className="max-w-md mx-auto">
-          {/* Main prompt */}
-          <div className="font-display font-black text-2xl sm:text-3xl text-[#171717] mb-2 tracking-tight">
+          <h2 className="type-display-sm text-ink mb-2">
             {dragActive ? t.dragActiveText : t.dragPrompt}
-          </div>
+          </h2>
 
-          <div className="font-mono text-xs font-bold text-[#171717]/60 my-2">
-            {t.orChoose}
-          </div>
+          <p className="type-caption text-muted my-2">{t.orChoose}</p>
 
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="brutalist-btn bg-[#FFD84D] text-[#171717] px-6 py-3 text-xs font-bold my-3"
+            className="btn-primary my-3"
           >
-            <span>{t.chooseFiles}</span>
+            {t.chooseFiles}
           </button>
 
-          <div className="font-mono text-xs text-[#171717]/70 mt-3">
-            {t.supportedTypes}
-          </div>
+          <p className="type-caption text-muted-soft mt-3">{t.supportedTypes}</p>
 
-          {/* Selected File Badge */}
           {selectedFile && (
-            <div className="mt-6 p-4 border-2 border-[#171717] bg-[#F6F1E8] flex items-center justify-between shadow-[3px_3px_0px_#171717]">
-              <div className="flex items-center gap-2 text-left truncate">
-                <FileText className="w-5 h-5 text-[#171717] shrink-0" />
+            <div className="mt-6 p-4 border border-hairline bg-canvas rounded-md flex flex-wrap items-center justify-between gap-3 text-left">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="w-4 h-4 text-muted shrink-0" aria-hidden="true" />
                 <div className="truncate">
-                  <div className="font-display font-bold text-xs text-[#171717] truncate">
-                    {selectedFile.name}
-                  </div>
-                  <div className="font-mono text-[10px] text-[#171717]/70">
+                  <p className="type-body-sm text-ink truncate">{selectedFile.name}</p>
+                  <p className="font-figure type-caption text-muted">
                     {(selectedFile.size / 1024).toFixed(1)} KB
-                  </div>
+                  </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={executeUpload}
                 disabled={isUploading}
-                className="brutalist-btn brutalist-btn-sm bg-[#B7F34A] text-[#171717] font-bold text-xs shrink-0 ml-3"
+                className="btn-primary btn-sm shrink-0"
               >
-                <span>{isUploading ? 'PROCESSING…' : 'PROCESS →'}</span>
+                <span>{isUploading ? t.processing : t.process}</span>
+                <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Upload Error Notice */}
       {uploadError && (
-        <div className="brutalist-card-coral p-4 border-2 border-[#171717] shadow-[4px_4px_0px_#171717]">
-          <div className="font-display font-bold text-sm text-white flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 shrink-0" />
+        <div role="alert" className="feature-card border-error p-4">
+          <p className="type-body-sm text-error flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
             <span>{uploadError}</span>
-          </div>
+          </p>
         </div>
       )}
 
-      {/* Active Pipeline Progress */}
       {currentStage && (
-        <div className="brutalist-card p-6 bg-white border-2 border-[#171717] shadow-[6px_6px_0px_#171717]">
-          <div className="flex items-center justify-between border-b-2 border-[#171717] pb-3 mb-4">
-            <div className="font-display font-black text-base text-[#171717]">
-              {currentStage === 'COMPLETED' ? t.successFound : t.readingText}
-            </div>
-            <span className="font-mono text-xs font-bold bg-[#FFD84D] border border-[#171717] px-2 py-0.5">
-              STAGE: {currentStage}
+        <div className="feature-card p-6">
+          <div className="flex items-center justify-between border-b border-hairline pb-3 mb-4 gap-3">
+            <h2 className="type-title-md text-ink">
+              {currentStage === 'COMPLETED' ? t.seeMoney : t.title}
+            </h2>
+            <span className="badge-pill shrink-0">
+              {t.stage} <span className="font-figure">{currentStage}</span>
             </span>
           </div>
 
-          <div className="space-y-2 mb-6">
+          <ol className="space-y-1 mb-6">
             {STAGES.map((s, idx) => {
-              const isPast = STAGES.findIndex(x => x.key === currentStage) >= idx;
+              const isPast = STAGES.findIndex((x) => x.key === currentStage) >= idx;
               const isCurrent = s.key === currentStage;
               return (
-                <div
+                <li
                   key={s.key}
-                  className={`p-2 font-mono text-xs border flex items-center justify-between ${
+                  className={`type-caption p-2 rounded-xs flex items-center justify-between gap-3 ${
                     isCurrent
-                      ? 'border-[#171717] bg-[#B7F34A] font-bold'
+                      ? 'bg-surface-strong text-ink'
                       : isPast
-                      ? 'border-transparent text-[#171717]/80'
-                      : 'border-transparent text-[#171717]/30'
+                        ? 'text-body'
+                        : 'text-muted-soft'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="w-4 h-4 border border-[#171717] flex items-center justify-center text-[10px]">
-                      {isPast ? '✓' : idx + 1}
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={`w-4 h-4 rounded-full border shrink-0 flex items-center justify-center ${
+                        isPast ? 'border-hairline-strong' : 'border-hairline'
+                      }`}
+                      aria-hidden="true"
+                    >
+                      {isPast ? <Check className="w-2.5 h-2.5" /> : idx + 1}
                     </span>
                     <span>{locale === 'bn' ? s.labelBn : s.labelEn}</span>
-                  </div>
-                  {isCurrent && <span className="animate-pulse">▶ ACTIVE</span>}
-                </div>
+                  </span>
+                  {isCurrent && <span className="animate-pulse shrink-0">{t.active}</span>}
+                </li>
               );
             })}
-          </div>
+          </ol>
 
           {currentStage === 'COMPLETED' && (
-            <div className="pt-4 border-t-2 border-[#171717] flex items-center justify-between">
-              <span className="font-mono text-xs font-bold text-[#171717]">
-                {extractedCount} candidates anchored to raw document bounding boxes.
+            <div className="pt-4 border-t border-hairline flex flex-wrap items-center justify-between gap-4">
+              <span className="font-figure type-caption text-body">
+                <span className="font-medium text-ink">{extractedCount}</span>{' '}
+                {t.candidatesAnchored}
               </span>
-              <button
-                type="button"
-                onClick={onUploadComplete}
-                className="brutalist-btn bg-[#B7F34A] text-[#171717] px-5 py-2.5 text-xs font-bold"
-              >
-                <span>{t.seeMoney}</span>
+              <button type="button" onClick={onUploadComplete} className="btn-primary">
+                {t.seeMoney}
+                <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </button>
             </div>
           )}
         </div>
       )}
 
-      {/* Golden Dataset Quick Loader Block */}
-      <div className="brutalist-card-paper p-6 sm:p-8 border-2 border-[#171717] shadow-[6px_6px_0px_#171717]">
+      <div className="feature-card p-6 sm:p-8">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <div className="font-display font-black text-lg text-[#171717]">
-              {t.testSampleTitle}
-            </div>
-            <p className="font-display text-xs text-[#171717]/80 mt-1 max-w-xl">
-              {t.testSampleDesc}
-            </p>
+            <h2 className="type-title-md text-ink">{t.testSampleTitle}</h2>
+            <p className="type-caption text-body mt-1 max-w-xl">{t.testSampleDesc}</p>
           </div>
           <button
             type="button"
             onClick={onLoadGolden}
             disabled={isLoadingGolden}
-            className="brutalist-btn bg-[#FFD84D] text-[#171717] px-5 py-3 text-xs font-bold shrink-0"
+            className="btn-outline shrink-0"
           >
-            <Database className="w-4 h-4 mr-2" />
-            <span>{isLoadingGolden ? 'LOADING...' : t.loadSampleBtn}</span>
+            <Database className="w-4 h-4" aria-hidden="true" />
+            <span>{isLoadingGolden ? t.loading : t.loadSampleBtn}</span>
           </button>
         </div>
       </div>
 
-      {/* Previous Statements History */}
       {documents.length > 0 && (
-        <div className="brutalist-card p-6 bg-white">
-          <div className="flex items-center justify-between border-b-2 border-[#171717] pb-3 mb-4">
-            <span className="font-display font-black text-sm uppercase text-[#171717]">
-              {t.documentHistory}
-            </span>
-            <span className="font-mono text-xs font-bold text-[#171717]/60">
-              {documents.length} STATEMENTS
+        <div className="feature-card p-6">
+          <div className="flex items-center justify-between border-b border-hairline pb-3 mb-4 gap-3">
+            <h2 className="type-title-sm text-ink">{t.documentHistory}</h2>
+            <span className="type-caption text-muted">
+              <span className="font-figure">{documents.length}</span> {t.statements}
             </span>
           </div>
-          <div className="divide-y-2 divide-[#171717]/10">
+          <div className="divide-y divide-hairline-soft">
             {documents.map((doc, idx) => (
-              <div key={idx} className="py-3 flex items-center justify-between text-xs font-mono">
-                <div>
-                  <span className="font-bold text-[#171717]">{doc.filename}</span>
-                  <span className="text-[#171717]/60 ml-2">({doc.stage || doc.status})</span>
+              <div key={idx} className="py-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="type-body-sm text-ink">{doc.filename}</span>
+                  <span className="type-caption text-muted ml-2">
+                    {doc.stage || doc.status}
+                  </span>
                 </div>
-                <div className="text-[#171717]/80">
-                  {doc.extracted_candidate_count ?? 12} candidates · {new Date(doc.created_at).toLocaleDateString()}
+                <div className="type-caption text-muted font-figure">
+                  {doc.extracted_candidate_count ?? 'unknown count'} candidates ·{' '}
+                  {new Date(doc.created_at).toLocaleDateString()}
                 </div>
               </div>
             ))}
           </div>
         </div>
       )}
-
     </div>
   );
 };

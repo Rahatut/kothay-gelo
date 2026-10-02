@@ -1,139 +1,497 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   Kothay Gelo? — design tokens
+   Authority: DESIGN.md (ElevenLabs-design-analysis, v alpha)
+   Canvas is off-white, ink is warm near-black, brand voltage is atmospheric
+   pastel gradient orbs. CTA is the ink pill. Nothing else carries color.
+   ========================================================================== */
+
+@theme {
+  /* Brand & accent ------------------------------------------------------ */
+  --color-primary: #292524;
+  --color-primary-active: #0c0a09;
+
+  /* Surface ------------------------------------------------------------- */
+  --color-canvas: #f5f5f5;
+  --color-canvas-soft: #fafafa;
+  --color-canvas-deep: #0c0a09;
+  --color-surface-card: #ffffff;
+  --color-surface-strong: #f0efed;
+  --color-surface-dark: #0c0a09;
+  --color-surface-dark-elevated: #1c1917;
+
+  /* Hairlines ----------------------------------------------------------- */
+  --color-hairline: #e7e5e4;
+  --color-hairline-soft: #f0efed;
+  --color-hairline-strong: #d6d3d1;
+
+  /* Text ---------------------------------------------------------------- */
+  --color-ink: #0c0a09;
+  --color-body: #4e4e4e;
+  --color-body-strong: #292524;
+  --color-muted: #777169;
+  --color-muted-soft: #a8a29e;
+  --color-on-primary: #ffffff;
+  --color-on-dark: #ffffff;
+  --color-on-dark-soft: #a8a29e;
+
+  /* Atmospheric gradient stops (decoration only) ------------------------- */
+  --color-gradient-mint: #a7e5d3;
+  --color-gradient-peach: #f4c5a8;
+  --color-gradient-lavender: #c8b8e0;
+  --color-gradient-sky: #a8c8e8;
+  --color-gradient-rose: #e8b8c4;
+
+  /* Semantic ------------------------------------------------------------ */
+  --color-success: #16a34a;
+  --color-error: #dc2626;
+
+  /* Type ---------------------------------------------------------------- */
+  /* Waldenburg is licensed; EB Garamond 300 is the sanctioned substitute
+     per DESIGN.md "Note on Font Substitutes". */
+  --font-display: "Waldenburg", "EB Garamond", "Times New Roman", serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* DESIGN.md defines no monospace face. Figures and codes stay in Inter
+     with tabular numerals so the type system is not widened. */
+  --font-figure: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Radius — overrides the Tailwind default scale to match DESIGN.md ----- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-pill: 9999px;
+  --radius-full: 9999px;
+
+  /* Elevation — hairline plus one soft drop tier ------------------------- */
+  --shadow-soft: 0 4px 16px rgb(0 0 0 / 0.04);
+  --shadow-soft-lg: 0 8px 32px rgb(0 0 0 / 0.06);
+}
+
 @layer base {
   :root {
-    --color-paper: #F6F1E8;
-    --color-surface: #FFFFFF;
-    --color-ink: #171717;
-    --color-green: #B7F34A;
-    --color-yellow: #FFD84D;
-    --color-coral: #FF725E;
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
-    background-color: #F6F1E8;
-    color: #171717;
-    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.5;
+    letter-spacing: 0.16px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  ::selection {
+    background-color: var(--color-ink);
+    color: var(--color-on-primary);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+  }
 }
 
+/* ==========================================================================
+   Typography utilities
+   ========================================================================== */
+
 .font-display {
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: var(--font-display);
+  font-weight: 300;
+  letter-spacing: -0.36px;
 }
 
 .font-bangla {
-  font-family: 'Noto Sans Bengali', sans-serif;
+  font-family: "Noto Sans Bengali", var(--font-body);
+  font-weight: 400;
 }
 
-.font-mono-code {
-  font-family: 'JetBrains Mono', monospace;
+.font-figure {
+  font-family: var(--font-figure);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
-/* Restrained Neobrutalist Button System */
+/* Display scale — weight 300 is the editorial signature, never bold. */
+.type-display-mega {
+  font-family: var(--font-display);
+  font-size: 64px;
+  font-weight: 300;
+  line-height: 1.05;
+  letter-spacing: -1.92px;
+}
+
+.type-display-xl {
+  font-family: var(--font-display);
+  font-size: 48px;
+  font-weight: 300;
+  line-height: 1.08;
+  letter-spacing: -0.96px;
+}
+
+.type-display-lg {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 300;
+  line-height: 1.17;
+  letter-spacing: -0.36px;
+}
+
+.type-display-md {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 300;
+  line-height: 1.13;
+  letter-spacing: -0.32px;
+}
+
+.type-display-sm {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.type-title-md {
+  font-family: var(--font-body);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.type-title-sm {
+  font-family: var(--font-body);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.44;
+  letter-spacing: 0.18px;
+}
+
+.type-body-md {
+  font-family: var(--font-body);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.16px;
+}
+
+.type-body-strong {
+  font-family: var(--font-body);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.16px;
+}
+
+.type-body-sm {
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.47;
+  letter-spacing: 0.15px;
+}
+
+.type-caption {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+
+.type-caption-uppercase {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.96px;
+  text-transform: uppercase;
+}
+
+/* ==========================================================================
+   Components
+   ========================================================================== */
+
 .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background-color: #171717;
-  color: #F6F1E8;
-  border: 2px solid #171717;
-  font-family: 'Space Grotesk', sans-serif;
-  font-weight: 600;
-  font-size: 14px;
-  letter-spacing: -0.01em;
+  gap: 8px;
+  min-height: 40px;
   padding: 10px 20px;
-  border-radius: 0px;
-  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-pill);
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
   cursor: pointer;
   user-select: none;
+  transition: background-color 180ms ease, border-color 180ms ease;
 }
 
 .btn-primary:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 3px 3px 0 #171717;
+  background-color: var(--color-primary-active);
+  border-color: var(--color-primary-active);
 }
 
-.btn-primary:active {
-  transform: translate(0px, 0px);
-  box-shadow: 0 0 0 #171717;
+.btn-primary:disabled {
+  background-color: var(--color-muted-soft);
+  border-color: var(--color-muted-soft);
+  cursor: not-allowed;
 }
 
-.btn-secondary {
+.btn-outline {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 9px 19px;
+  border: 1px solid var(--color-hairline-strong);
+  border-radius: var(--radius-pill);
   background-color: transparent;
-  color: #171717;
-  border: 1px solid #171717;
-  font-family: 'Space Grotesk', sans-serif;
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 15px;
   font-weight: 500;
-  font-size: 14px;
-  letter-spacing: -0.01em;
-  padding: 10px 20px;
-  border-radius: 0px;
-  transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease;
+  line-height: 1;
+  letter-spacing: 0;
   cursor: pointer;
   user-select: none;
+  transition: background-color 180ms ease, border-color 180ms ease;
 }
 
-.btn-secondary:hover {
-  background-color: rgba(23, 23, 23, 0.05);
+.btn-outline:hover {
+  background-color: var(--color-surface-strong);
+  border-color: var(--color-ink);
 }
 
-.btn-accent-green {
+.btn-outline:disabled {
+  color: var(--color-muted-soft);
+  cursor: not-allowed;
+}
+
+.btn-text {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  background-color: #B7F34A;
-  color: #171717;
-  border: 2px solid #171717;
-  font-family: 'Space Grotesk', sans-serif;
-  font-weight: 700;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-family: var(--font-body);
   font-size: 15px;
-  letter-spacing: -0.01em;
-  padding: 12px 28px;
-  border-radius: 0px;
-  box-shadow: 3px 3px 0 #171717;
-  transition: transform 180ms ease, box-shadow 180ms ease;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
   cursor: pointer;
+  transition: color 180ms ease;
 }
 
-.btn-accent-green:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 5px 5px 0 #171717;
+.btn-text:hover {
+  color: var(--color-muted);
 }
 
-.btn-accent-green:active {
-  transform: translate(0, 0);
-  box-shadow: 1px 1px 0 #171717;
+.btn-sm {
+  min-height: 32px;
+  padding: 6px 14px;
+  font-size: 14px;
 }
 
-/* Editorial Card Base */
-.editorial-card {
-  background-color: #FFFFFF;
-  border: 1px solid #171717;
-  border-radius: 0px;
+.feature-card {
+  background-color: var(--color-surface-card);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  color: var(--color-ink);
+  transition: box-shadow 180ms ease, border-color 180ms ease;
 }
 
-.editorial-card-interactive {
-  background-color: #FFFFFF;
-  border: 1px solid #171717;
-  border-radius: 0px;
-  transition: transform 180ms ease, box-shadow 180ms ease;
+.feature-card-interactive:hover {
+  border-color: var(--color-hairline-strong);
+  box-shadow: var(--shadow-soft);
 }
 
-.editorial-card-interactive:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 3px 3px 0 #171717;
+.badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background-color: var(--color-surface-strong);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.96px;
+  text-transform: uppercase;
 }
 
-/* Subtle Paper Texture (Very subtle organic speckle) */
-.paper-grain {
-  background-color: #F6F1E8;
-  background-image: radial-gradient(#171717 0.5px, transparent 0.5px);
-  background-size: 24px 24px;
-  background-position: 0 0;
-  opacity: 0.98;
+.text-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-hairline-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-card);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: 0.16px;
+}
+
+.text-input::placeholder {
+  color: var(--color-muted-soft);
+}
+
+.text-input:focus {
+  border-width: 2px;
+  border-color: var(--color-ink);
+  padding: 11px 15px;
+  outline: none;
+}
+
+.hairline-top {
+  border-top: 1px solid var(--color-hairline);
+}
+
+.hairline-bottom {
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+/* ==========================================================================
+   Atmospheric gradient orbs
+   Decoration only. Never a button fill, never a text color, never a card
+   surface. Sized in absolute page units and blurred past recognition so the
+   page reads as photography, not as chroma.
+   ========================================================================== */
+
+.orb {
+  position: absolute;
+  border-radius: var(--radius-full);
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.orb-mint {
+  background: radial-gradient(circle at center, var(--color-gradient-mint) 0%, transparent 70%);
+}
+
+.orb-peach {
+  background: radial-gradient(circle at center, var(--color-gradient-peach) 0%, transparent 70%);
+}
+
+.orb-lavender {
+  background: radial-gradient(circle at center, var(--color-gradient-lavender) 0%, transparent 70%);
+}
+
+.orb-sky {
+  background: radial-gradient(circle at center, var(--color-gradient-sky) 0%, transparent 70%);
+}
+
+.orb-rose {
+  background: radial-gradient(circle at center, var(--color-gradient-rose) 0%, transparent 70%);
+}
+
+/* Orbs reduce diameter at every breakpoint but never disappear. */
+@media (max-width: 1023px) {
+  .orb {
+    filter: blur(64px);
+    transform: scale(0.75);
+  }
+}
+
+@media (max-width: 639px) {
+  .orb {
+    filter: blur(48px);
+    transform: scale(0.5);
+  }
+}
+
+/* ==========================================================================
+   Layout rhythm
+   ========================================================================== */
+
+.shell {
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+}
+
+.band {
+  padding-block: 96px;
+}
+
+.band-compact {
+  padding-block: 48px;
+}
+
+@media (max-width: 1023px) {
+  .band {
+    padding-block: 64px;
+  }
+}
+
+@media (max-width: 639px) {
+  .band {
+    padding-block: 48px;
+  }
+
+  .band-compact {
+    padding-block: 32px;
+  }
+}
+
+/* Display scale steps down: 64 -> 48 -> 32. */
+@media (max-width: 1023px) {
+  .type-display-mega {
+    font-size: 48px;
+    letter-spacing: -0.96px;
+  }
+
+  .type-display-xl {
+    font-size: 40px;
+  }
+}
+
+@media (max-width: 639px) {
+  .type-display-mega {
+    font-size: 32px;
+    line-height: 1.13;
+    letter-spacing: -0.32px;
+  }
+
+  .type-display-xl {
+    font-size: 32px;
+    line-height: 1.13;
+    letter-spacing: -0.32px;
+  }
+
+  .type-display-lg {
+    font-size: 28px;
+  }
+
+  .type-display-md {
+    font-size: 24px;
+  }
 }

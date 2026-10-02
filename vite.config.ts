@@ -8,7 +8,10 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        // `import.meta.dirname` rather than `__dirname`: Vite 8 warns that the
+        // CommonJS global is unsupported under its native config loader, and it will
+        // become the default.
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     server: {

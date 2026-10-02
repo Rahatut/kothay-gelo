@@ -4,7 +4,6 @@ import { ProblemSection } from './ProblemSection';
 import { ComparisonSection } from './ComparisonSection';
 import { HowItWorksSection } from './HowItWorksSection';
 import { ProductInsightsSection } from './ProductInsightsSection';
-import { WhatIfCalculator } from './WhatIfCalculator';
 import { BangladeshMessySection } from './BangladeshMessySection';
 import { SampleTransactionsSection } from './SampleTransactionsSection';
 import { TrustSection } from './TrustSection';
@@ -20,7 +19,6 @@ interface LandingPageProps {
   onOpenTransactions: () => void;
   onOpenInsights: () => void;
   onOpenSettings: () => void;
-  onCommitCalculatorSavings: (amount: number) => void;
   summary: DashboardSummary | null;
 }
 
@@ -33,7 +31,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenTransactions,
   onOpenInsights,
   onOpenSettings,
-  onCommitCalculatorSavings,
 }) => {
   return (
     <main className="flex-1 w-full">
@@ -63,7 +60,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <ProductInsightsSection onExploreClue={onOpenInsights} />
 
       {/* 6. What-If Section (Slider + green result) */}
-      <WhatIfCalculator onCommitSavings={onCommitCalculatorSavings} />
 
       {/* 7. Bangladesh Section (Made for how money moves here) */}
       <BangladeshMessySection />
