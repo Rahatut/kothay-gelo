@@ -18,6 +18,9 @@ import { isPostgresDatabase } from '../config';
 
 const MIGRATIONS_DIR = path.join(process.cwd(), 'server', 'db', 'migrations');
 
+/** Postgres migrations directory. */
+const PG_MIGRATIONS_DIR = path.join(process.cwd(), 'server', 'db', 'migrations-pg');
+
 /** Migration filenames must sort numerically, so a leading zero count is fixed. */
 const MIGRATION_FILENAME = /^(\d{3})_[a-z0-9_]+\.sql$/;
 
@@ -29,7 +32,8 @@ interface Migration {
 }
 
 async function loadMigrations(): Promise<Migration[]> {
-  const files = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith('.sql'));
+  const dir = isPostgresDatabase() ? PG_MIGRATIONS_DIR : MIGRATIONS_DIR;
+  const files = (await readdir(dir)).filter((f) => f.endsWith('.sql'));
   const migrations: Migration[] = [];
 
   for (const filename of files) {
@@ -43,7 +47,7 @@ async function loadMigrations(): Promise<Migration[]> {
       version: Number(match[1]),
       name: filename.slice(4, -4),
       filename,
-      sql: await readFile(path.join(MIGRATIONS_DIR, filename), 'utf8'),
+      sql: await readFile(path.join(dir, filename), 'utf8'),
     });
   }
 
@@ -63,10 +67,15 @@ async function loadMigrations(): Promise<Migration[]> {
 
 async function currentVersion(): Promise<number> {
   if (isPostgresDatabase()) {
-    const rows = await query<{ version: number }>(
-      `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`,
-    );
-    return rows[0]?.version ?? 0;
+    try {
+      const rows = await query<{ version: number }>(
+        `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`,
+      );
+      return rows[0]?.version ?? 0;
+    } catch (err) {
+      // Table doesn't exist yet (fresh database), version is 0
+      return 0;
+    }
   } else {
     const client = await getClient();
     if (!client) return 0;
