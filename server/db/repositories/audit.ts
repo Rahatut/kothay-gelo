@@ -21,7 +21,14 @@ export type AuditAction =
   | 'MUTATED'
   | 'OWNERSHIP_REFUSED'
   | 'EXPORTED'
-  | 'DELETED';
+  | 'DELETED'
+  // Consent decisions are the one event in the product where "we did it because you
+  // agreed" has to be demonstrable rather than asserted. The audit union could not
+  // express them, so `POST /v1/settings/consents` wrote to `db.logAudit` — an
+  // in-memory log that `/v1/settings/audit` does not read. A refusal to log is not
+  // the same as not logging.
+  | 'CONSENT_ACCEPTED'
+  | 'CONSENT_REVOKED';
 
 export interface AuditRow {
   id: string;

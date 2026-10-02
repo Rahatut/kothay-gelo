@@ -19,23 +19,55 @@ import { attachIdentity, requireSameOrigin, requireIdentity } from './server/aut
 import { capabilityRouter } from './server/capabilities/routes';
 import { askRouter } from './server/ask';
 import { invokeCapability } from './server/capabilities/guard';
+import {
+  rateLimit,
+  concurrencyLimit,
+  UPLOAD_RATE_LIMIT,
+  DESTRUCTIVE_RATE_LIMIT,
+  MAX_CONCURRENT_UPLOADS_PER_ACCOUNT,
+} from './server/rateLimit';
 import { resolvePeriod } from './server/capabilities/resolvePeriod';
 import {
   listTransactions,
   toClientTransaction,
   evidenceIdsFor,
+  getTransactionsByIds,
 } from './server/db/repositories/transactions';
-import { purgeAccountData, countAccountData } from './server/db/repositories/purge';
-import { createGoal, deleteGoal, listGoals } from './server/db/repositories/goals';
-import { listEvidenceForAccount, evidenceForTransaction } from './server/db/repositories/evidence';
-import { listInsights } from './server/db/repositories/insights';
+import { countAccountData } from './server/db/repositories/purge';
+import { eraseAccountData } from './server/erase';
+import { createGoal, deleteGoal, listGoals, updateGoal } from './server/db/repositories/goals';
+import { listEvidenceForAccount, evidenceForTransaction, getEvidence } from './server/db/repositories/evidence';
+import {
+  listInsights,
+  getInsight,
+  replaceInsights,
+  listRecommendations,
+  recommendationsByInsight,
+  getRecommendation,
+  toClientInsight,
+  toClientRecommendation,
+} from './server/db/repositories/insights';
 import { listDocuments, getDocument } from './server/db/repositories/documents';
+import { getProcessingJob } from './server/db/repositories/processingJobs';
+import {
+  listConsents,
+  acceptConsent,
+  revokeConsent,
+  toClientConsent,
+  isConsentType,
+  CONSENT_TYPES,
+} from './server/db/repositories/consents';
 import { seedSampleData } from './server/db/seed';
 import { getAccountById, markAccountDeleted } from './server/db/repositories/accounts';
 import { clearSessionCookie } from './server/auth/session';
 import { refuseNotFound } from './server/auth/refusal';
 import { inspectUpload, rejectionMessage } from './server/uploadValidation';
-import { extractPdfText, pdfPlainText, type PdfTextPage } from './server/pdfExtract';
+import {
+  extractPdfText,
+  pdfPlainText,
+  looksLikeBase64Pdf,
+  type PdfTextPage,
+} from './server/pdfExtract';
 import {
   validateManualEntry,
   proposeCategory,
@@ -46,7 +78,7 @@ import {
 } from './server/manualEntry';
 import { newTransactionId, newCorrectionId } from './server/ids';
 import { monthPeriod } from './server/capabilities/period';
-import { generateDeterministicInsights } from './server/financialEngine';
+import { recomputeInsightsForAccount } from './server/recompute';
 import {
   createManualTransaction,
   updateTransactionRow,
@@ -58,10 +90,10 @@ import {
 } from './server/db/repositories/transactions';
 import { listAudit } from './server/db/repositories/audit';
 import { recordAudit } from './server/db/repositories/audit';
+import { recordFeedback, actedOnIds, isFeedbackType } from './server/db/repositories/feedback';
 import {
   newConsentId,
   newDocumentId,
-  newFeedbackId,
   newGoalId,
   newRequestId,
   newUploadId,
@@ -153,42 +185,16 @@ async function readAllTransactions(accountId: string) {
 }
 
 /**
- * Recomputes a user's insights and recommendations from the ledger.
+ * Recomputes a user's insights and recommendations.
  *
- * The in-memory `recalculateUserInsights` reads `db.transactions`, which only holds
- * rows the pipeline happened to place there. Anything written through the repository
- * -- every manual entry, every correction -- is invisible to it, so calling it after
- * an edit computed insights from a stale set. This reads the relational ledger and
- * hands the rows to the engine.
+ * Delegates to the single implementation in `server/recompute.ts`, which reads the
+ * relational ledger, splits the comparison window, and persists both tables. It was
+ * duplicated here and in `MemoryDatabase.recalculateUserInsights`, and the two copies
+ * disagreed about the period split, so the upload path produced clues no read path
+ * could see. Kept as a named function so the four route call sites read as intent.
  */
 async function recalculateForAccount(userId: string): Promise<void> {
-  try {
-    // Bounded above by `boundedLimit`, which caps at 1000. Ordered ascending, that
-    // silently meant "the oldest 1000 rows" -- so on a larger ledger the newest
-    // entries, including the one just written, contributed to nothing. Paged
-    // instead of truncated.
-    const stored = await readAllTransactions(userId);
-    const rows = stored.map((r) => toClientTransaction(r));
-    const { insights, recommendations } = generateDeterministicInsights(rows, [], userId);
-
-    // Scoped to this account. `db.insights` and `db.recommendations` are
-    // process-global maps, so clearing them outright wiped every other user's
-    // derived view the moment anyone recorded a transaction or corrected one. The
-    // old per-user scrub in `MemoryDatabase` filters by `user_id` for exactly this
-    // reason.
-    for (const [id, insight] of db.insights) {
-      if (insight.user_id === userId) db.insights.delete(id);
-    }
-    for (const [id, rec] of db.recommendations) {
-      if (rec.user_id === userId) db.recommendations.delete(id);
-    }
-    for (const insight of insights) db.insights.set(insight.id, insight);
-    for (const rec of recommendations) db.recommendations.set(rec.id, rec);
-  } catch (err) {
-    // A recompute failure must not fail the write that triggered it. The ledger is
-    // already correct; only the derived view is stale.
-    console.error('[insights] recompute failed:', err);
-  }
+  await recomputeInsightsForAccount(userId);
 }
 
 /** The provider is advisory only; it never decides how content is parsed. */
@@ -260,52 +266,102 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
     return req.accountId;
   };
 
+  /**
+   * Key for per-account rate and concurrency counters.
+   *
+   * `requireIdentity` has run by the time any limiter on a `/v1` route fires, so
+   * `req.accountId` is set. The address fallback is for the window before signup,
+   * where an unauthenticated flood would otherwise be entirely unbounded.
+   */
+  const accountKey = (req: Request): string =>
+    (req as Request & { accountId?: string }).accountId ?? req.ip ?? 'unknown';
+
   // `PATCH /v1/users/me` was removed. It read `db.users`, a map emptied when the boot
   // seed was deleted, so it answered 404 for every signed-in user while appearing to
   // offer profile editing. Nothing called it. Locale lives in local storage and
   // timezone is not yet a stored preference; spec 001 will reintroduce the surface if
   // a preference genuinely needs the server.
 
-  app.get('/v1/settings/consents', (req, res) => {
+  /**
+   * Consent records, read from the relational store.
+   *
+   * These were `db.consents`, an in-memory Map, so every record was lost on
+   * restart. The consent is the artefact that proves the user agreed to have their
+   * financial data processed; one that cannot be read back cannot evidence
+   * anything. See migration 010.
+   */
+  app.get('/v1/settings/consents', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
-    const records = db.consents.get(userId) || [];
-    res.json({ data: records });
+    try {
+      const rows = await listConsents(userId);
+      res.json({ data: rows.map(toClientConsent) });
+    } catch (err) {
+      console.error('[consents] list failed:', err);
+      res.status(500).json({ error: { code: 'CONSENTS_UNAVAILABLE', message: 'Could not read your consent records.' } });
+    }
   });
 
-  app.post('/v1/settings/consents', (req, res) => {
+  /**
+   * Accepts or revokes one consent.
+   *
+   * `consent_type` is validated against the recognised set and rejected with a 422
+   * before anything is written. It was previously accepted as any string, so the
+   * store could be filled with consent types that nothing reads, and a typo in the
+   * client silently recorded the wrong consent.
+   *
+   * `accepted` is required to be a boolean for the same reason: `accepted: "false"`
+   * is truthy, and a consent that was refused would have been recorded as given.
+   */
+  app.post('/v1/settings/consents', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
-    const { consent_type, accepted } = req.body;
-    let userConsents = db.consents.get(userId) || [];
+    const { consent_type, accepted } = req.body ?? {};
 
-    const existingIndex = userConsents.findIndex(c => c.consent_type === consent_type);
-    if (accepted) {
-      if (existingIndex >= 0) {
-        userConsents[existingIndex].revoked_at = undefined;
-        userConsents[existingIndex].accepted_at = new Date().toISOString();
-      } else {
+    if (!isConsentType(consent_type)) {
+      return res.status(422).json({
+        error: {
+          code: 'INVALID_CONSENT_TYPE',
+          message: `consent_type must be one of: ${CONSENT_TYPES.join(', ')}.`,
+        },
+      });
+    }
+    if (typeof accepted !== 'boolean') {
+      return res.status(422).json({
+        error: { code: 'INVALID_CONSENT_STATE', message: 'accepted must be true or false.' },
+      });
+    }
+
+    try {
+      if (accepted) {
         const ipHash = hashRequestIp(req);
-        userConsents.push({
-          id: newConsentId(),
-          user_id: userId,
-          consent_type,
-          policy_version: 'v1.0-bd',
-          accepted_at: new Date().toISOString(),
-          // A real digest of the request's IP, or nothing. The previous value was
-          // the truncated literal 'sha256:d8a9f...', which looked like a hash and
-          // hashed nothing — so a consent record implied provenance it did not
-          // have. Omitting the field is honest; inventing a digest is not.
-          ...(ipHash ? { ip_hash: ipHash } : {}),
+        await acceptConsent({
+          accountId: userId,
+          consentType: consent_type,
+          policyVersion: 'v1.0-bd',
+          ...(ipHash ? { ipHash } : {}),
+        });
+        await recordAudit({
+          accountId: userId,
+          action: 'CONSENT_ACCEPTED',
+          resourceType: 'ConsentRecord',
+          resourceId: consent_type,
+        });
+      } else if (await revokeConsent(userId, consent_type)) {
+        // Only audited when it changed something. Revoking a consent that was never
+        // granted is not a state change, and a trail of no-op entries is not a trail.
+        await recordAudit({
+          accountId: userId,
+          action: 'CONSENT_REVOKED',
+          resourceType: 'ConsentRecord',
+          resourceId: consent_type,
         });
       }
-      db.logAudit(userId, 'CONSENT_ACCEPTED', 'ConsentRecord', consent_type, `Accepted ${consent_type}`);
-    } else {
-      if (existingIndex >= 0) {
-        userConsents[existingIndex].revoked_at = new Date().toISOString();
-        db.logAudit(userId, 'CONSENT_REVOKED', 'ConsentRecord', consent_type, `Revoked ${consent_type}`);
-      }
+
+      const rows = await listConsents(userId);
+      res.json({ data: rows.map(toClientConsent) });
+    } catch (err) {
+      console.error('[consents] write failed:', err);
+      res.status(500).json({ error: { code: 'CONSENT_WRITE_FAILED', message: 'Could not record that choice.' } });
     }
-    db.consents.set(userId, userConsents);
-    res.json({ data: userConsents });
   });
 
   /**
@@ -407,18 +463,33 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
   // This duplicate was registered first and therefore shadowed it, so deletion
   // set the status without invalidating outstanding sessions: a session issued
   // before deletion kept working until it expired.
-  app.post('/v1/settings/delete-account', requireIdentity, async (req, res) => {
+  app.post(
+    '/v1/settings/delete-account',
+    requireIdentity,
+    rateLimit(DESTRUCTIVE_RATE_LIMIT),
+    async (req, res) => {
     const userId = getAuthenticatedUserId(req);
     try {
       const account = await getAccountById(userId);
       if (!account) {
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Account not found' } });
       }
+      // The statements, transactions, evidence, and calculations are erased too.
+      //
+      // Marking the account deleted on its own answered "Account deleted and every
+      // session revoked" while every financial row the account owned stayed in the
+      // relational store, reachable by any query that did not check the account
+      // status. The user asked for erasure and got a flag.
+      //
+      // `eraseAccountData` clears the in-memory maps as well. This route purged only
+      // the relational store, so the account's statements and quoted transaction text
+      // stayed resident in the process after the user was told the data was erased.
+      await eraseAccountData(userId);
       await markAccountDeleted(userId);
       await clearSessionCookie(res);
       return res.json({
         success: true,
-        message: 'Account deleted and every session revoked.',
+        message: 'Account deleted, your data erased, and every session revoked.',
       });
     } catch (err) {
       console.error('[settings] delete-account failed:', err);
@@ -426,7 +497,8 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
         .status(500)
         .json({ error: { code: 'DELETE_FAILED', message: 'Could not delete the account.' } });
     }
-  });
+  },
+  );
 
   /**
    * Permanently erases the caller's statements, transactions, evidence, leaks, and
@@ -447,19 +519,13 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
    * Audit events are kept: they record that the erasure happened and carry no
    * transaction content.
    */
-  app.post('/v1/settings/reset', async (req, res) => {
+  app.post('/v1/settings/reset', rateLimit(DESTRUCTIVE_RATE_LIMIT), async (req, res) => {
     const userId = getAuthenticatedUserId(req);
 
-    const result = await purgeAccountData(userId);
-
-    // The in-memory maps still back /v1/uploads and /v1/insights, so they are
-    // cleared too. Leaving them would resurrect documents and leaks the
-    // relational purge just removed.
-    Array.from(db.transactions.values()).filter(t => t.user_id === userId).forEach(t => db.transactions.delete(t.id));
-    Array.from(db.documents.values()).filter(d => d.user_id === userId).forEach(d => db.documents.delete(d.id));
-    Array.from(db.insights.values()).filter(i => i.user_id === userId).forEach(i => db.insights.delete(i.id));
-    Array.from(db.recommendations.values()).filter(r => r.user_id === userId).forEach(r => db.recommendations.delete(r.id));
-    Array.from(db.goals.values()).filter(g => g.user_id === userId).forEach(g => db.goals.delete(g.id));
+    // Both stores, one helper. The in-memory maps are cleared alongside the
+    // relational rows because several routes still read them: leaving them
+    // resurrects documents and leaks the purge just removed.
+    const result = await eraseAccountData(userId);
 
     db.logAudit(userId, 'SESSION_RESET', 'User', userId, 'Purged all statements, transactions, and calculations');
 
@@ -503,14 +569,23 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
   // -------------------------------------------------------------
   // UPLOAD & PROCESSING MODULE (/v1/uploads, /v1/processing)
   // -------------------------------------------------------------
-  app.post('/v1/uploads', async (req, res) => {
+  app.post(
+    '/v1/uploads',
+    rateLimit(UPLOAD_RATE_LIMIT),
+    concurrencyLimit(accountKey, MAX_CONCURRENT_UPLOADS_PER_ACCOUNT, 'upload'),
+    async (req, res) => {
     const userId = getAuthenticatedUserId(req);
     const reqId = (req as any).requestId;
     const { filename, file_size, mime_type, content, is_base64_image } = req.body;
 
-    // PDFs are posted as base64 bytes rather than as text read by the client.
-    const is_base64_pdf =
-      mime_type === 'application/pdf' || String(filename ?? '').toLowerCase().endsWith('.pdf');
+    // Decided from the bytes, not from the declaration.
+    //
+    // `mime_type` and the filename extension are client-supplied, and they chose
+    // which parser ran. A real PDF posted as `text/plain` under a `.csv` name
+    // skipped the extractor entirely and had its base64 handed to the text parser
+    // as prose, which is the same class of defect as trusting an untrusted
+    // identifier: the route becomes attacker-selectable by renaming the file.
+    const is_base64_pdf = looksLikeBase64Pdf(content ?? '');
 
     if (!filename) {
       return res.status(400).json({
@@ -600,7 +675,10 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
       // this record took `file_size` from the request while the relational row
       // recorded `inspection.byteSize`.
       file_size: is_base64_pdf ? Buffer.byteLength(content ?? '', 'base64') : inspection.byteSize,
-      mime_type: mime_type || (filename.endsWith('.csv') ? 'text/csv' : 'application/pdf'),
+      // Content-determined, like the stored row. The client value is only a fallback
+      // for a payload whose kind the inspection could not decide, which is
+      // `BINARY` — and a binary upload is already refused above.
+      mime_type: detectedMimeFor(inspection.kind) || mime_type,
       created_at: new Date().toISOString(),
     };
 
@@ -652,11 +730,17 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
     // Asynchronously trigger processing job
     // The parser receives the extracted text, never the original bytes. Passing
     // base64 to the row parser would have it read the encoding as statement content.
+    //
+    // The MIME handed to extraction is the detected one, not `mime_type` from the
+    // request. The model receives this as the declared type of the inline data, so
+    // a client that sent `text/plain` for a PNG had its bytes presented as text.
+    // The parser route is already decided from the bytes; the label has to come
+    // from the same place or the two disagree.
     const job = await ProcessingPipeline.processDocumentAsync(
       docId,
       textForParsing,
       Boolean(is_base64_image),
-      is_base64_pdf ? 'text/plain' : mime_type
+      is_base64_pdf ? 'text/plain' : detectedMimeFor(inspection.kind)
     );
 
     res.json({
@@ -666,45 +750,107 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
       },
       upload_id: uploadId,
       document_id: docId,
-      processing_job_id: job.id,
-      status: job.status,
-    });
-  });
+processing_job_id: job.id,
+        status: job.status,
+      });
+    },
+  );
 
-  app.get('/v1/uploads', (req, res) => {
+  /**
+ * Reads documents from the repository, not the in-memory map.
+ *
+ * The map is written once at upload time and never reloaded, so this list came
+ * back empty after a restart even though the statements and their transactions
+ * were all still in the relational store. The user's own history appeared to
+ * vanish while the dashboard kept reporting totals derived from it — the same
+ * split-store defect that made the purge look broken, read from the other side.
+ */
+app.get('/v1/uploads', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
-    const docs = Array.from(db.documents.values()).filter(d => d.user_id === userId);
-    res.json({ data: docs });
+    try {
+      const rows = await listDocuments(userId);
+      res.json({
+        data: rows.map((d) => ({
+          id: d.id,
+          upload_id: `upl_${d.id}`,
+          user_id: d.account_id,
+          filename: d.original_filename,
+          document_type: d.source_kind === 'DELIMITED' ? 'TRANSACTION_HISTORY' : 'MOBILE_MONEY_STATEMENT',
+          source_type: d.provider ?? 'General',
+          language: 'mixed',
+          page_count: null,
+          // `stage` is the stored processing state, so a document whose job failed
+          // is visible as failed here rather than appearing to still be running.
+          status: d.stage === 'COMPLETED' ? 'PROCESSED' : d.stage === 'FAILED' ? 'FAILED' : 'PROCESSING',
+          stage: d.stage,
+          file_size: d.byte_size,
+          mime_type: d.detected_mime,
+          extracted_candidate_count: d.row_count,
+          period_start: d.period_start ?? undefined,
+          period_end: d.period_end ?? undefined,
+          created_at: d.created_at,
+        })),
+      });
+    } catch (err) {
+      console.error('[uploads] list failed:', err);
+      res.status(500).json({ error: { code: 'UPLOADS_UNAVAILABLE' } });
+    }
   });
 
-  app.get('/v1/uploads/:id/status', (req, res) => {
+  /**
+   * Document processing status, read from the relational store.
+   *
+   * This is the route `UploadView` polls after an upload. It read `db.documents` and
+   * `db.processingJobs`, the in-memory maps, so a document that had completed and
+   * been persisted still reported NOT_FOUND after a restart: the upload list showed
+   * the statement while the poll the UI was already running got a 404. The durable
+   * `stage` and `row_count` are written by the pipeline when processing finishes; the
+   * in-memory job only refines the answer while it is still running in this process.
+   */
+  app.get('/v1/uploads/:id/status', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
     const docId = req.params.id;
-    const doc = db.documents.get(docId);
+    let doc: Awaited<ReturnType<typeof getDocument>>;
+    try {
+      doc = await getDocument(userId, docId);
+    } catch {
+      return res.status(500).json({ error: { code: 'UPLOADS_UNAVAILABLE' } });
+    }
     // Same indistinguishability rule as the processing job: a document owned by
     // someone else reports NOT_FOUND, identical to a document that never existed.
-    if (!doc || doc.user_id !== userId) {
+    if (!doc) {
       return refuseNotFound(req, res, 'Document', req.params.id, { code: 'NOT_FOUND', message: 'Document not found' });
     }
     const job = Array.from(db.processingJobs.values()).find(j => j.document_id === docId);
     res.json({
       data: {
-        ...doc,
-        stage: doc.stage || job?.stage || (doc.status === 'PROCESSED' ? 'COMPLETED' : 'PROCESSING'),
-        extracted_candidate_count: doc.extracted_candidate_count || job?.extracted_count || 0,
+        id: doc.id,
+        user_id: doc.account_id,
+        filename: doc.original_filename,
+        document_type: doc.source_kind === 'DELIMITED' ? 'TRANSACTION_HISTORY' : 'MOBILE_MONEY_STATEMENT',
+        source_type: doc.provider ?? 'General',
+        file_size: doc.byte_size,
+        mime_type: doc.detected_mime,
+        status: doc.stage === 'COMPLETED' ? 'PROCESSED' : doc.stage === 'FAILED' ? 'FAILED' : 'PROCESSING',
+        stage: job?.stage || doc.stage || 'PROCESSING',
+        extracted_candidate_count: doc.row_count ?? job?.extracted_count ?? 0,
+        period_start: doc.period_start ?? undefined,
+        period_end: doc.period_end ?? undefined,
+        created_at: doc.created_at,
       },
     });
   });
 
-  app.get('/v1/processing/:job_id', (req, res) => {
+  app.get('/v1/processing/:job_id', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
-    const job = db.processingJobs.get(req.params.job_id);
-    // A job belonging to another account must be indistinguishable from one that
-    // does not exist, or this endpoint enumerates ids across tenants. Both cases
-    // therefore return the same NOT_FOUND body.
-    if (!job || job.user_id !== userId) {
+    // Read from the relational store, scoped to the caller. The in-memory map this
+    // used before is never reloaded on boot, so a job that completed before a
+    // restart answered NOT_FOUND. The pipeline upserts every stage transition.
+    const stored = await getProcessingJob(userId, req.params.job_id);
+    if (!stored) {
       return refuseNotFound(req, res, 'ProcessingJob', req.params.job_id, { code: 'JOB_NOT_FOUND', message: 'Processing job not found' });
     }
+    const job = { ...stored, user_id: stored.account_id };
     // The job is returned whole, so `error_message` would otherwise ship the
     // internal cause to the client -- a SQL constraint name, a table name, a
     // filesystem path. Those go to the log; the caller gets a sentence and a
@@ -733,6 +879,11 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
     try {
       const account = await getAccountById(userId);
       const count = await seedSampleData(userId, account?.email);
+
+      // Seed writes the ledger but does not run the detectors, so the sample data
+      // loaded with no clue to show. Routed through the same recompute the upload
+      // path uses, so the demo produces the findings the engine actually derives.
+      await recomputeInsightsForAccount(userId);
 
       await recordAudit({
         accountId: userId,
@@ -1127,13 +1278,10 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
   });
 
   // Evidence detail
-  app.get('/v1/evidence/:id', (req, res) => {
+  app.get('/v1/evidence/:id', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
-    const ev = db.evidence.get(req.params.id);
-    // Evidence carries a document, and the document carries the owner. Reach the
-    // owner through that chain rather than trusting an account id on the row.
-    const owner = ev ? db.documents.get(ev.document_id)?.user_id : undefined;
-    if (!ev || owner !== userId) {
+    const ev = await getEvidence(userId, req.params.id);
+    if (!ev) {
       return refuseNotFound(req, res, 'Evidence', req.params.id, { code: 'NOT_FOUND', message: 'Evidence not found' });
     }
     res.json({ data: ev });
@@ -1212,46 +1360,80 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
   // -------------------------------------------------------------
   // INSIGHTS & RECOMMENDATIONS MODULE (/v1/insights, /v1/recommendations)
   // -------------------------------------------------------------
-  app.get('/v1/insights', (req, res) => {
+  /**
+   * Reads insights from the relational store.
+   *
+   * This listed `db.insights`, which the engine wrote to and nothing else read
+   * from. It survived only as long as the process: insights vanished on restart
+   * even though the transactions they were computed from were still stored, so a
+   * user with a full ledger was told they had no patterns. `replaceInsights` was
+   * written for this and never called, because the engine's type names did not
+   * satisfy the table's CHECK — see migration 009.
+   */
+  app.get('/v1/insights', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
-    const list = Array.from(db.insights.values()).filter(i => i.user_id === userId);
-    res.json({ data: list });
+    try {
+      const rows = await listInsights(userId);
+      const byInsight = await recommendationsByInsight(userId);
+      res.json({
+        data: rows.map((row) => toClientInsight(row, byInsight.get(row.id) ?? [])),
+      });
+    } catch (err) {
+      console.error('[insights] list failed:', err);
+      res.status(500).json({ error: { code: 'INSIGHTS_UNAVAILABLE' } });
+    }
   });
 
-  app.get('/v1/insights/:id', (req, res) => {
-    const ins = db.insights.get(req.params.id);
-    if (!ins || ins.user_id !== getAuthenticatedUserId(req)) {
-        return refuseNotFound(req, res, 'Insight', req.params.id);
+  app.get('/v1/insights/:id', async (req, res) => {
+    const userId = getAuthenticatedUserId(req);
+    const row = await getInsight(userId, req.params.id);
+    if (!row) {
+      return refuseNotFound(req, res, 'Insight', req.params.id);
     }
 
-    // Attach supporting transactions
-    const supportingTxns = (ins.supporting_transaction_ids || [])
-      .map(id => db.transactions.get(id))
-      .filter(Boolean);
+    // Supporting rows are read from the relational ledger, not the memory map.
+    // A transactional fetch per id would be an N+1 against a list the size of a
+    // statement, so one batched lookup covers them.
+    const supportingTxns = (
+      await getTransactionsByIds(userId, row.supportingTransactionIds)
+    ).map((t) => toClientTransaction(t));
+
+    // The list route supplies each insight's recommendations so the card can show
+    // its saving and action text. The detail route omitted them, so the same insight
+    // came back with `potential_savings_bdt` and `action_text` missing. Same helper,
+    // so the two responses cannot disagree.
+    const recs = (await recommendationsByInsight(userId)).get(row.id) ?? [];
 
     res.json({
       data: {
-        ...ins,
+        ...toClientInsight(row, recs),
         supporting_transactions: supportingTxns,
       },
     });
   });
 
-  app.get('/v1/recommendations', (req, res) => {
+  app.get('/v1/recommendations', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
-    const list = Array.from(db.recommendations.values()).filter((r) => r.user_id === userId);
+    const stored = await listRecommendations(userId);
+    const list = stored.map(toClientRecommendation);
 
     // Overlap is stated, not hidden: two recommendations that cite any of the
     // same rows cannot both be fully acted on, so each names the other.
+    // `tracked` is read from the relational feedback table in one query for the
+    // whole page. It came from `db.feedback`, an in-memory array, so a saving the
+    // user marked acted-on showed as untracked again after a restart.
+    const trackedIds = await actedOnIds(
+      userId,
+      'Recommendation',
+      list.map((rec) => rec.id),
+    );
+
     const withOverlap = list.map((rec) => {
       const mine = new Set(rec.supporting_transaction_ids ?? []);
       const overlapping = list
-        .filter((other) => other.id !== rec.id && (other.supporting_transaction_ids ?? []).some((id) => mine.has(id)))
+        .filter((other) => other.id !== rec.id && (other.supporting_transaction_ids ?? []).some((id: string) => mine.has(id)))
         .map((other) => other.id);
-      const tracked = db.feedback.some(
-        (f) => f.object_type === 'Recommendation' && f.object_id === rec.id && f.feedback_type === 'acted_on',
-      );
-      return { ...rec, overlapping_recommendation_ids: overlapping, tracked };
+      return { ...rec, overlapping_recommendation_ids: overlapping, tracked: trackedIds.has(rec.id) };
     });
 
     res.json({
@@ -1261,103 +1443,156 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
     });
   });
 
-  app.post('/v1/recommendations/:id/feedback', (req, res) => {
+  app.post('/v1/recommendations/:id/feedback', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
-    const rec = db.recommendations.get(req.params.id);
-    if (!rec || rec.user_id !== userId) {
-      return refuseNotFound(req, res, 'Recommendation', req.params.id, { code: 'NOT_FOUND', message: 'Recommendation not found' });
+    // Read relationally. This looked up `db.recommendations`, the in-memory map,
+    // which is no longer populated now that recommendations are stored -- so the
+    // route answered 404 for ids that exist.
+    const rec = await getRecommendation(userId, req.params.id);
+    if (!rec) {
+      return refuseNotFound(req, res, 'Recommendation', req.params.id, {
+        code: 'NOT_FOUND',
+        message: 'Recommendation not found',
+      });
     }
+
     const { feedback_type, comment } = req.body ?? {};
-    if (typeof feedback_type !== 'string' || !['helpful', 'not_helpful', 'acted_on'].includes(feedback_type)) {
-      return res.status(422).json({ error: { code: 'invalid_params', message: 'feedback_type must be helpful, not_helpful, or acted_on.' } });
+    if (!isFeedbackType(feedback_type)) {
+      return res.status(422).json({
+        error: {
+          code: 'invalid_params',
+          message: 'feedback_type must be helpful, not_helpful, or acted_on.',
+        },
+      });
     }
-    db.feedback.push({
-      id: newFeedbackId(),
-      user_id: userId,
-      object_type: 'Recommendation',
-      object_id: req.params.id,
-      feedback_type,
-      comment,
-      created_at: new Date().toISOString(),
+
+    try {
+      await recordFeedback({
+        accountId: userId,
+        objectType: 'Recommendation',
+        objectId: req.params.id,
+        feedbackType: feedback_type,
+        ...(typeof comment === 'string' ? { comment } : {}),
+      });
+    } catch (err) {
+      console.error('[feedback] recommendation failed:', err);
+      return res.status(500).json({ error: { code: 'FEEDBACK_FAILED', message: 'Could not record that feedback.' } });
+    }
+
+    await recordAudit({
+      accountId: userId,
+      action: 'MUTATED',
+      resourceType: 'Recommendation',
+      resourceId: req.params.id,
     });
-    db.logAudit(userId, 'RECOMMENDATION_FEEDBACK', 'Recommendation', req.params.id, `Feedback: ${feedback_type}`);
     res.json({ success: true });
   });
 
-  app.post('/v1/insights/:id/feedback', (req, res) => {
+  app.post('/v1/insights/:id/feedback', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
-    const insight = db.insights.get(req.params.id);
-    // Previously this accepted feedback for any id, including an insight that
-    // does not exist and one owned by another account.
-    if (!insight || insight.user_id !== userId) {
-      return refuseNotFound(req, res, 'Insight', req.params.id, { code: 'NOT_FOUND', message: 'Insight not found' });
+    // Relational, for the same reason as above.
+    const insight = await getInsight(userId, req.params.id);
+    if (!insight) {
+      return refuseNotFound(req, res, 'Insight', req.params.id, {
+        code: 'NOT_FOUND',
+        message: 'Insight not found',
+      });
     }
-    const { feedback_type, comment } = req.body;
-    db.feedback.push({
-      id: newFeedbackId(),
-      user_id: userId,
-      object_type: 'Insight',
-      object_id: req.params.id,
-      feedback_type,
-      comment,
-      created_at: new Date().toISOString(),
+
+    const { feedback_type, comment } = req.body ?? {};
+    if (!isFeedbackType(feedback_type)) {
+      // Previously unvalidated, so any string was stored as a feedback type and the
+      // evaluations that read it had to defend against values the product never
+      // emits.
+      return res.status(422).json({
+        error: {
+          code: 'invalid_params',
+          message: 'feedback_type must be helpful, not_helpful, or acted_on.',
+        },
+      });
+    }
+
+    try {
+      await recordFeedback({
+        accountId: userId,
+        objectType: 'Insight',
+        objectId: req.params.id,
+        feedbackType: feedback_type,
+        ...(typeof comment === 'string' ? { comment } : {}),
+      });
+    } catch (err) {
+      console.error('[feedback] insight failed:', err);
+      return res.status(500).json({ error: { code: 'FEEDBACK_FAILED', message: 'Could not record that feedback.' } });
+    }
+
+    await recordAudit({
+      accountId: userId,
+      action: 'MUTATED',
+      resourceType: 'Insight',
+      resourceId: req.params.id,
     });
-    db.logAudit(userId, 'INSIGHT_FEEDBACK', 'Insight', req.params.id, `Submitted feedback: ${feedback_type}`);
     res.json({ success: true, message: 'Feedback logged for evaluation.' });
   });
 
   // Gemini AI Narration Layer (Strictly receives mathematical facts, outputs conversational Bangla or English)
+  /**
+   * Narrates one insight from the engine's own facts.
+   *
+   * Reads the relational store. This looked up `db.insights`, the in-memory map, which
+   * no longer holds insights — so every narration request answered 404 for an insight
+   * that plainly exists. Supporting rows are read relationally too, for the same
+   * reason, and both the formula and the metric come from the stored record so the
+   * narration phrases the engine's arithmetic rather than one it invents.
+   *
+   * The model may rephrase these facts; it never originates a number
+   * (constitutional principle I).
+   */
   const handleInsightNarration = async (req: express.Request, res: express.Response) => {
+    const userId = getAuthenticatedUserId(req);
+    const locale = ((req.query.lang || req.query.locale || req.body?.locale || 'en') as string).toLowerCase() === 'bn' ? 'bn' : 'en';
+
+    // Narration is the one path where model input flows near the data, so ownership
+    // is enforced before anything is read out of the record.
+    const ins = await getInsight(userId, req.params.id);
+    if (!ins) {
+      return refuseNotFound(req, res, 'Insight', req.params.id);
+    }
+
+    const supportingTxns = (
+      await getTransactionsByIds(userId, ins.supportingTransactionIds)
+    ).map((row) => toClientTransaction(row));
+
+    const totalAmount = supportingTxns.reduce((sum, t) => sum + t.amount, 0);
+
     try {
-      const userId = getAuthenticatedUserId(req);
-      const ins = db.insights.get(req.params.id);
-      // Narration is the one path where model input flows near the data, so it
-      // checks ownership before anything is read out of the record.
-      if (!ins || ins.user_id !== getAuthenticatedUserId(req)) {
-        return refuseNotFound(req, res, 'Insight', req.params.id);
-      }
-
-      const locale = ((req.query.lang || req.query.locale || req.body?.locale || 'en') as string).toLowerCase() === 'bn' ? 'bn' : 'en';
-      const supportingTxns = (ins.supporting_transaction_ids || [])
-        .map(id => db.transactions.get(id))
-        .filter(Boolean) as Transaction[];
-
-      const totalAmount = supportingTxns.reduce((sum, t) => sum + t.amount, 0);
-
       const narration = await narrateInsightFacts(
         {
           title: ins.title,
-          title_bn: ins.title_bn,
-          summary: ins.summary,
-          summary_bn: ins.summary_bn,
+          title_bn: ins.title_bn ?? undefined,
+          summary: ins.description,
+          summary_bn: ins.description_bn ?? undefined,
           category: ins.title,
-          math_formula: ins.math_formula,
-          metric_value: ins.metric_value,
+          math_formula: ins.math_formula ?? undefined,
+          metric_value: ins.metric_value ?? undefined,
           currentAmount: totalAmount,
           orderCount: supportingTxns.length,
           type: ins.type,
         },
-        locale
+        locale,
       );
 
-      const finalText = narration || (locale === 'bn' ? ins.summary_bn : ins.summary) || 'Spending pattern verified.';
-      res.json({
-        narration: finalText,
-        data: { narration: finalText },
-        success: true,
-      });
-    } catch (err: any) {
-      console.warn('[Narration Route] Graceful fallback invoked:', err.message || err);
-      const ins = db.insights.get(req.params.id);
-      const locale = ((req.query.lang || req.query.locale || req.body?.locale || 'en') as string).toLowerCase() === 'bn' ? 'bn' : 'en';
-      const fallback = locale === 'bn'
-        ? (ins?.summary_bn || 'ব্যয়ের গাণিতিক পর্যালোচনা যাচাই করা হয়েছে।')
-        : (ins?.summary || 'Spending pattern mathematically verified against evidence.');
-      res.json({
-        narration: fallback,
-        data: { narration: fallback },
-        success: true,
-      });
+      const finalText =
+        narration || (locale === 'bn' ? ins.description_bn : ins.description) || 'Spending pattern verified.';
+      return res.json({ narration: finalText, data: { narration: finalText }, success: true });
+    } catch (err) {
+      // A model failure must not fail the request: the deterministic sentence is
+      // already in the row and says the same thing without the model.
+      console.warn('[Narration Route] Graceful fallback invoked:', (err as Error).message || err);
+      const fallback =
+        locale === 'bn'
+          ? ins.description_bn || 'ব্যয়ের গাণিতিক পর্যালোচনা যাচাই করা হয়েছে।'
+          : ins.description || 'Spending pattern mathematically verified against evidence.';
+      return res.json({ narration: fallback, data: { narration: fallback }, success: true });
     }
   };
 
@@ -1488,9 +1723,6 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
         created_at: row.created_at,
       };
 
-      // Mirrored into the in-memory map so the views that still read it stay
-      // consistent until they are moved onto the repository.
-      db.goals.set(goal.id, goal as never);
       db.logAudit(userId, 'GOAL_CREATED', 'Goal', goal.id, `Created goal: ${goal.name}`);
       return res.json({ data: goal });
     } catch (err) {
@@ -1510,32 +1742,90 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
     return res.json({ success: true, message: 'Goal removed.' });
   });
 
-  app.patch('/v1/goals/:id', (req, res) => {
+  /**
+   * Updates a savings target in the relational store.
+   *
+   * This read and wrote `db.goals`, a map that nothing writes to — `POST /v1/goals`
+   * has always persisted through the repository. Every goal the user could see
+   * listed therefore answered 404 here, so progress could be recorded in the form
+   * and lost, and a restart discarded it. `db.goals` is not updated here either:
+   * nothing reads it for goals, so writing to both stores would recreate the split
+   * this file has been closing.
+   */
+  app.patch('/v1/goals/:id', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
-    const goal = db.goals.get(req.params.id);
-    if (!goal || goal.user_id !== userId) {
-      return res.status(404).json({ error: { code: 'NOT_FOUND' } });
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const changes: Parameters<typeof updateGoal>[2] = {};
+    if (body.current_amount !== undefined) changes.currentAmount = Number(body.current_amount);
+    if (body.target_amount !== undefined) changes.targetAmount = Number(body.target_amount);
+    if (typeof body.title === 'string') changes.title = body.title;
+    if (typeof body.target_date === 'string') changes.targetDate = body.target_date;
+
+    try {
+      const updated = await updateGoal(userId, req.params.id, changes);
+      if (!updated) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND' } });
+      }
+      db.logAudit(
+        userId,
+        'GOAL_UPDATED',
+        'Goal',
+        updated.id,
+        `Updated goal progress: ৳${updated.current_amount}`,
+      );
+      // Same shape as `POST /v1/goals`, including the monthly figure. The two
+      // responses describe the same record, so a client cannot get a field from one
+      // and not the other. `status` is still not persisted (there is no column), so
+      // the request body's `status` is ignored rather than echoed as if stored.
+      const patchMonths = monthsUntil(updated.target_date || null);
+      res.json({
+        data: {
+          id: updated.id,
+          user_id: updated.account_id,
+          title: updated.title,
+          name: updated.title,
+          name_bn: updated.title,
+          target_amount: updated.target_amount,
+          current_amount: updated.current_amount,
+          target_date: updated.target_date || undefined,
+          status: 'IN_PROGRESS',
+          monthly_required_savings: patchMonths
+            ? Math.round((updated.target_amount - updated.current_amount) / patchMonths)
+            : null,
+          created_at: updated.created_at,
+        },
+      });
+    } catch (err) {
+      if (err instanceof RangeError) {
+        return res.status(400).json({ error: { code: 'INVALID_GOAL', message: err.message } });
+      }
+      console.error('[goals] update failed:', err);
+      res.status(500).json({ error: { code: 'GOAL_UPDATE_FAILED' } });
     }
-
-    const { current_amount, status } = req.body;
-    if (current_amount !== undefined) goal.current_amount = Number(current_amount);
-    if (status) goal.status = status;
-
-    db.goals.set(goal.id, goal);
-    db.logAudit(userId, 'GOAL_UPDATED', 'Goal', goal.id, `Updated goal progress: ৳${goal.current_amount}`);
-    res.json({ data: goal });
   });
 
-  // -------------------------------------------------------------
-  // STATIC SERVING (production only)
-  // -------------------------------------------------------------
-  if (process.env.NODE_ENV === 'production') {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+  // A misspelled API route must not fall through to the SPA.
+  //
+  // Registered before the static/SPA middleware below. It previously sat after an
+  // earlier `NODE_ENV === 'production'` block whose `app.get('*')` served
+  // `index.html` for any unmatched GET, so in the deployed configuration `/v1` GETs
+  // still received the SPA shell with a 200 rather than this 404.
+  //
+  // The Vite middleware is mounted with `appType: 'spa'` and answers anything it
+  // does not recognise, so `/v1/transcation` — a typo — was answered `200` with an
+  // empty body. The client's load path treats a 200 as success and reads
+  // `undefined` out of it, which is indistinguishable from "no transactions". A
+  // 404 says the route does not exist, which is the truth and is actionable.
+  app.use('/v1', (req, res) => {
+    res.status(404).json({
+      success: false,
+      error: {
+        code: 'NOT_FOUND',
+        message: `No route for ${req.method} /v1${req.path}.`,
+      },
     });
-  }
+  });
 
   // -------------------------------------------------------------
   // VITE DEV MIDDLEWARE / STATIC SERVING
@@ -1560,6 +1850,83 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // -------------------------------------------------------------
+  // TERMINAL ERROR HANDLING
+  // -------------------------------------------------------------
+  //
+  // Registered after every route and after the Vite middleware, because Express
+  // resolves middleware in registration order and the error must come last.
+  //
+  // Without it, an error thrown inside an async route handler had nowhere to go:
+  // Express 4 does not catch a rejected promise, so the client got no response at
+  // all and the socket was held open until it timed out. A request carrying a
+  // malformed JSON body produced exactly that — `express.json` calls `next(err)`,
+  // no handler matched, and the request hung rather than returning 400.
+  //
+  // Two rules, in order of how often they matter here:
+  //
+  //   1. Answer the client. A missing response is a worse failure than a wrong
+  //      one, because the user sees a spinner rather than an explanation.
+  //   2. Say nothing about the server internals. A stack trace in a response body
+  //      hands an attacker the file layout, dependency versions, and absolute
+  //      paths. The detail goes to the log, keyed by request id, where the user
+  //      can quote it in a bug report.
+
+  // Body-parser failures arrive here with a status and a type. They are the
+  // client's fault, so they are reported as the client's fault: a 400 that says
+  // the body could not be read, not a 500 with a parser stack.
+  app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+
+    const requestId = (req as Request & { requestId?: string }).requestId;
+    const status =
+      typeof (err as { status?: unknown })?.status === 'number'
+        ? (err as { status: number }).status
+        : (err as { statusCode?: number })?.statusCode;
+    const isClientError = typeof status === 'number' && status >= 400 && status < 500;
+
+    if (isClientError) {
+      const code =
+        (err as { type?: string })?.type === 'entity.too.large'
+          ? 'PAYLOAD_TOO_LARGE'
+          : (err as { type?: string })?.type === 'entity.parse.failed'
+            ? 'MALFORMED_BODY'
+            : 'BAD_REQUEST';
+      res.status(status as number).json({
+        success: false,
+        error: {
+          code,
+          message:
+            code === 'PAYLOAD_TOO_LARGE'
+              ? 'That upload is larger than this server accepts.'
+              : code === 'MALFORMED_BODY'
+                ? 'That request body could not be read. It may be incomplete.'
+                : 'That request could not be accepted.',
+        },
+        requestId,
+      });
+      return;
+    }
+
+    // Everything else is ours. Log it in full, tell the client nothing.
+    console.error(
+      `[Kothay Gelo?] Unhandled error on ${req.method} ${req.originalUrl} ` +
+        `(request ${requestId ?? 'unknown'}):`,
+      err,
+    );
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Something went wrong on our side. Your data was not changed.',
+      },
+      requestId,
+    });
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Kothay Gelo?] Server running at http://0.0.0.0:${PORT}`);

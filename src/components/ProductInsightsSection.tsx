@@ -47,6 +47,12 @@ export const ProductInsightsSection: React.FC<ProductInsightsSectionProps> = ({
           <p className="type-body-md text-body">
             Kothay Gelo? turns transaction history into understandable patterns.
           </p>
+          {/* The four cards below are written samples. Each is phrased in the
+              second person ("Your Friday spending is consistently higher"), so
+              without this they read as findings about whoever is looking. */}
+          <p className="type-caption text-muted-soft mt-4">
+            Example clues. Not findings about you.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

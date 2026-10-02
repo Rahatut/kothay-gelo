@@ -94,9 +94,9 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               className="w-full max-w-[420px] feature-card feature-card-interactive p-8 cursor-pointer select-none"
             >
               <div className="flex items-center justify-between border-b border-hairline pb-4 mb-6">
-                <span className="type-caption-uppercase text-muted">Active financial desk</span>
+                <span className="type-caption-uppercase text-muted">Example output</span>
                 <span className="badge-pill">
-                  Open dashboard
+                  See how it works
                   <ArrowUpRight className="w-3 h-3" aria-hidden="true" />
                 </span>
               </div>
@@ -133,14 +133,31 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
                   <span className="type-caption text-muted-soft">3 action points</span>
                 </div>
               </div>
+
+              {/* These figures are fixed in the component. They are not read from
+                  the account and they do not change when the user uploads,
+                  purges, or deletes their data. Without this line a visitor
+                  who has purged everything still sees ৳42,680 above a button
+                  that opens their (empty) desk, and reads it as their own
+                  spending. PRODUCT.md allows a badge only when it is
+                  verifiably true, so the demo data has to declare itself. */}
+              <p className="type-caption text-muted-soft mt-6 pt-4 border-t border-hairline-soft">
+                Sample figures from a demo statement. Not your data.
+              </p>
             </div>
           </div>
         </div>
 
         <div className="mt-16 pt-8 border-t border-hairline flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <p className="type-caption-uppercase text-ink">Your finances stay yours</p>
+          {/* Was "Processed in-session. Nothing is stored." That stopped being
+              true when the relational store landed: statements, transactions,
+              evidence, and goals are all persisted per account and survive a
+              restart. PRODUCT.md permits a privacy badge only when it is
+              verifiably true, so the claim now names what actually happens and
+              the control that backs it. */}
           <p className="type-caption text-muted">
-            Processed in-session. Nothing is stored.
+            Kept on your account, so you can come back. Erase it in one click.
           </p>
         </div>
       </div>

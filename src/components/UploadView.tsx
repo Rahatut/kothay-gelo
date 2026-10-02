@@ -58,7 +58,7 @@ const COPY = {
   en: {
     title: 'Drop the evidence',
     subtitle:
-      'Upload bank statements, bKash or Nagad histories. Processed in-session and never stored.',
+      'Upload bank statements, bKash or Nagad histories. Stored on your account so you can come back, and erased on request.',
     dragPrompt: 'Drop your statement here',
     orChoose: 'or',
     chooseFiles: 'Choose a file',
@@ -80,7 +80,7 @@ const COPY = {
   },
   bn: {
     title: 'প্রমাণপত্র আপলোড করুন',
-    subtitle: 'বিকাশ, নগদ বা ব্যাংক স্টেটমেন্ট আপলোড করুন। সাইশনেই প্রক্রিয়া হয়, সংরক্ষণ হয় না।',
+    subtitle: 'বিকাশ, নগদ বা ব্যাংক স্টেটমেন্ট আপলোড করুন। আপনার অ্যাকাউন্টে সংরক্ষিত থাকে, চাইলে যেকোনো সময় মুছে ফেলা যায়।',
     dragPrompt: 'আপনার স্টেটমেন্ট ফাইলটি এখানে টেনে আনুন',
     orChoose: 'অথবা',
     chooseFiles: 'ফাইল পছন্দ করুন',

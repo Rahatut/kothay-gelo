@@ -44,6 +44,9 @@ const PURGE_TABLES: { table: string; label: string }[] = [
   { table: 'insights', label: 'calculated leaks' },
   { table: 'recommendations', label: 'recommendations' },
   { table: 'goals', label: 'savings targets' },
+  { table: 'feedback', label: 'feedback' },
+  { table: 'consents', label: 'consents' },
+  { table: 'processing_jobs', label: 'processing jobs' },
 ];
 
 /**

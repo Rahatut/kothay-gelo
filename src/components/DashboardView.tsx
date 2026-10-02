@@ -13,6 +13,26 @@ import {
 } from 'lucide-react';
 import { Category, DashboardSummary, Transaction, InsightRecommendation, SavingsGoal } from '../types';
 
+/**
+ * Month label for one ISO date, in the active locale.
+ *
+ * Parsed by hand rather than through `new Date(iso)`: that constructor reads a
+ * bare `YYYY-MM-DD` as UTC midnight, which in a timezone behind UTC lands on the
+ * previous day and turns "1 September" into "31 August". The period badge is
+ * read as the boundary of the data, so an off-by-one-day month is a wrong
+ * claim about what was measured.
+ */
+function formatPeriodMonth(iso: string, locale: 'en' | 'bn'): string {
+  const [year, month] = iso.split('-');
+  if (!year || !month) return iso;
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB', {
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
 interface DashboardViewProps {
   summary: DashboardSummary | null;
   /**
@@ -45,7 +65,8 @@ const COPY = {
     deskTitle: 'Financial investigation desk',
     deskSubtitle:
       'Unified multi-account intelligence across bKash, Nagad, and Bangladeshi bank accounts.',
-    cycle: 'September 2026 cycle',
+    periodUnknown: 'No period yet',
+    periodInferred: 'inferred',
     verifiedLogs: 'verified logs',
     totalSpent: 'Total expenses',
     totalIncome: 'Verified inflow',
@@ -80,7 +101,8 @@ const COPY = {
     deskTitle: 'আর্থিক পর্যালোচনা ডেক্স',
     deskSubtitle:
       'বিকাশ, নগদ ও ব্যাংক অ্যাকাউন্টের সমন্বিত খরচের হিসাব ও বিশ্লেষণ।',
-    cycle: 'সেপ্টেম্বর ২০২৬ চক্র',
+    periodUnknown: 'কোনো সময়কাল নেই',
+    periodInferred: 'অনুমানভিত্তিক',
     verifiedLogs: 'টি যাচাইকৃত লেনদেন',
     totalSpent: 'মোট ব্যয়',
     totalIncome: 'মোট জমা',
@@ -123,6 +145,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onBackToLanding,
 }) => {
   const t = COPY[locale];
+
+  // The badge names the period the engine actually measured, not a literal.
+  //
+  // It read "September 2026 cycle" unconditionally, so a desk built from an
+  // August statement — or from a February one — was labelled September, which
+  // is the same defect as the fixed landing figures: a constant presented as
+  // something derived from the user's own data. `period_inferred` is surfaced
+  // because the engine had to guess the period, and a guess should not be
+  // dressed up as a certainty (constitutional principle 7).
+  const cycleLabel = (() => {
+    if (!summary?.has_data) return t.periodUnknown;
+    const start = formatPeriodMonth(summary.period.start, locale);
+    const end = formatPeriodMonth(summary.period.end, locale);
+    const span = start === end ? start : `${start} – ${end}`;
+    return summary.period_inferred
+      ? `${span} · ${t.periodInferred}`
+      : span;
+  })();
 
   // Failed, not loading. Checked first: a failed load also leaves the summary
   // null, and showing a spinner for it left the user on "Initializing the desk"
@@ -242,7 +282,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span>{t.deskTitle}</span>
             </button>
           )}
-          <span className="badge-pill">{t.cycle}</span>
+          <span className="badge-pill">{cycleLabel}</span>
         </div>
 
         <p className="type-caption text-muted">

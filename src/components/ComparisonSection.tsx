@@ -21,6 +21,12 @@ export const ComparisonSection: React.FC<ComparisonSectionProps> = ({ onInvestig
             Don&rsquo;t just show the numbers.
             <span className="block text-muted mt-1">Explain them.</span>
           </h2>
+          {/* Both columns below are written examples, not output from any
+              account. Without saying so, the second card's "You spent 28% more
+              on food delivery" reads as a finding about the visitor. */}
+          <p className="type-caption text-muted-soft mt-4">
+            Both columns show written examples, not a real account.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12">

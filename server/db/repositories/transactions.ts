@@ -254,6 +254,40 @@ export async function getTransaction(
 }
 
 /**
+ * A named set of rows, scoped to the account, in the order they were asked for.
+ *
+ * Batched because an insight's evidence list is a page-length array and one
+ * query per id would be an N+1 on the exact path the product is built around
+ * (finding a clue, then opening what it rests on). Scoped to the account so a
+ * crafted `supporting_transaction_ids` array cannot pull another user's rows
+ * into a response (constitutional principle III).
+ *
+ * Missing ids are skipped rather than returned as nulls, so the caller gets only
+ * rows it can safely show. An id that has since been deleted is a real case: a
+ * correction that removes a row should not break the insight that cited it.
+ */
+export async function getTransactionsByIds(
+  accountId: string,
+  transactionIds: string[],
+): Promise<TransactionRow[]> {
+  if (transactionIds.length === 0) return [];
+
+  const placeholders = transactionIds.map(() => '?').join(', ');
+  const rows = await query<TransactionRow>(
+    `SELECT t.*, COALESCE(d.is_sample_data, 0) AS is_sample_data
+       FROM transaction_candidates t
+       LEFT JOIN source_documents d ON d.id = t.document_id
+      WHERE t.account_id = ? AND t.id IN (${placeholders})`,
+    [accountId, ...transactionIds],
+  );
+
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return transactionIds
+    .map((id) => byId.get(id))
+    .filter((r): r is TransactionRow => r !== undefined);
+}
+
+/**
  * Every row in a period, for the engine to aggregate. Unbounded by design.
  *
  * Named `transactionsInPeriod`, not `expensesInPeriod`, because it does not

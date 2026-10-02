@@ -298,3 +298,119 @@ describe('an upload reaches the ledger', () => {
     );
   });
 });
+
+/**
+ * An extraction that reads nothing must say so.
+ *
+ * The pipeline reported `COMPLETED` with `extracted_count: 0` for any statement
+ * whose rows it could not parse, and the client rendered a success panel from
+ * that. A five-row CSV uploaded as a `date,description,amount` export produced a
+ * completed job, an empty ledger, and the toast "Statements processed." — a
+ * statement the parser had not read at all, indistinguishable from one it had
+ * read and found nothing to file.
+ *
+ * Both stores are asserted, because the reporting lived in one of them and the
+ * consequence in the other: `pipeline.ts` sets the job, while the relational
+ * `source_documents` row is what every reader except `/v1/uploads` consults.
+ */
+describe('an unreadable statement is refused, not completed', () => {
+  /**
+   * Readable text that contains no transaction row. Not binary rubbish — a
+   * paragraph of prose, which is what a screenshot of a statement's footer or a
+   * wrongly exported file actually looks like.
+   */
+  const UNREADABLE = [
+    'Your statement is available in the bKash app.',
+    'Contact support with your registered number for help.',
+    'This document was generated automatically.',
+  ].join('\n');
+
+  test('the job reports FAILED and an explicit reason, never COMPLETED', async () => {
+    const accountId = await createAccount('unreadable@example.com');
+    const docId = await stageDocument(accountId, 'statement.csv');
+
+    const job = await ProcessingPipeline.processDocumentAsync(docId, UNREADABLE);
+    // The pipeline runs its stages off the request path, so the job is awaited
+    // through its terminal state rather than read immediately.
+    await settle(job.id);
+
+    assert.equal(job.status, 'FAILED', 'a zero-row extraction is a failure');
+    assert.notEqual(job.stage, 'COMPLETED');
+    assert.equal(job.error_code, 'NO_ROWS_EXTRACTED');
+    assert.match(job.error_message ?? '', /no transaction rows could be read/i);
+  });
+
+  test('nothing is written to the ledger', async () => {
+    const accountId = await createAccount('unreadable-rows@example.com');
+    const docId = await stageDocument(accountId, 'statement.csv');
+
+    const job = await ProcessingPipeline.processDocumentAsync(docId, UNREADABLE);
+    await settle(job.id);
+
+    assert.equal((await listTransactions(accountId)).length, 0);
+    const counts = await query<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM evidence WHERE account_id = ?`,
+      [accountId],
+    );
+    assert.equal(counts[0]?.c, 0, 'no evidence may be invented for a row that does not exist');
+  });
+
+  test('the relational document row records the failure, not a stalled VALIDATING', async () => {
+    // The in-memory job and the stored document are separate records. A reader
+    // that trusts `source_documents` — which is every read path except
+    // `/v1/uploads` — would otherwise see this document as still processing,
+    // forever, with no row count and no reason.
+    const accountId = await createAccount('unreadable-doc@example.com');
+    const docId = await stageDocument(accountId, 'statement.csv');
+
+    const job = await ProcessingPipeline.processDocumentAsync(docId, UNREADABLE);
+    await settle(job.id);
+
+    const { getDocument } = await import('./db/repositories/documents');
+    const stored = await getDocument(accountId, docId);
+    assert.equal(stored?.stage, 'FAILED', 'the stored stage must match the job');
+  });
+});
+
+/** Creates a document the pipeline can find, mirroring what the route does. */
+async function stageDocument(accountId: string, filename: string): Promise<string> {
+  const { insertDocument } = await import('./db/repositories/documents');
+  const { db } = await import('./db');
+  const stored = await insertDocument({
+    accountId,
+    sourceKind: 'DELIMITED',
+    provider: null,
+    originalFilename: filename,
+    detectedMime: 'text/plain',
+    byteSize: 100,
+    contentFingerprint: `fp-${filename}-${accountId}`,
+    stage: 'VALIDATING',
+  });
+  db.documents.set(stored.id, {
+    id: stored.id,
+    upload_id: `upl_${stored.id}`,
+    user_id: accountId,
+    filename,
+    document_type: 'TRANSACTION_HISTORY',
+    source_type: 'General',
+    language: 'mixed',
+    page_count: null,
+    status: 'PROCESSING',
+    stage: 'VALIDATING',
+    file_size: 100,
+    mime_type: 'text/plain',
+    created_at: new Date().toISOString(),
+  } as never);
+  return stored.id;
+}
+
+/** Waits for a job to reach a terminal state. */
+async function settle(jobId: string): Promise<void> {
+  const { db } = await import('./db');
+  for (let i = 0; i < 200; i++) {
+    const job = db.processingJobs.get(jobId);
+    if (job && (job.status === 'COMPLETED' || job.status === 'FAILED')) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`job ${jobId} never reached a terminal state`);
+}

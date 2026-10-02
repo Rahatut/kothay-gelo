@@ -18,6 +18,7 @@ const insights = await import('./insights');
 const goals = await import('./goals');
 const audit = await import('./audit');
 const documents = await import('./documents');
+const feedback = await import('./feedback');
 
 const PERIOD = { start: '2026-09-01', end: '2026-09-30' };
 
@@ -296,7 +297,7 @@ describe('insights', () => {
   test('drops a finding that cites nothing rather than storing it', async () => {
     const stored = await insights.replaceInsights(alice, [
       {
-        type: 'MICRO_SPEND',
+        type: 'SMALL_PURCHASES',
         title: 'Real finding',
         description: 'd',
         confidence: 0.9,
@@ -304,9 +305,10 @@ describe('insights', () => {
         supportingTransactionIds: ['txn_alice_1'],
         periodStart: PERIOD.start,
         periodEnd: PERIOD.end,
+        recommendations: [],
       },
       {
-        type: 'MICRO_SPEND',
+        type: 'SMALL_PURCHASES',
         title: 'Unsupported finding',
         description: 'd',
         confidence: 0.9,
@@ -314,10 +316,11 @@ describe('insights', () => {
         supportingTransactionIds: [],
         periodStart: PERIOD.start,
         periodEnd: PERIOD.end,
+        recommendations: [],
       },
     ]);
 
-    assert.equal(stored, 1);
+    assert.equal(stored.insightIds.length, 1);
     const listed = await insights.listInsights(alice);
     assert.equal(listed.length, 1);
     assert.equal(listed[0].title, 'Real finding');
@@ -330,10 +333,231 @@ describe('insights', () => {
     assert.equal(await insights.getInsight(bob, aliceInsight.id), null);
   });
 
+  // The defect this pins: `replaceInsights` existed and was never called, and
+  // `GET /v1/insights` listed an in-memory map. A user's clues therefore vanished
+  // on restart while the ledger they were computed from was still stored. The
+  // test reads only through the repository, so it fails if the write path is
+  // bypassed, not merely if the read path regresses.
+  test('insights survive losing the memory map', async () => {
+    await insights.replaceInsights(alice, [
+      {
+        type: 'SMALL_PURCHASES',
+        title: 'Durable finding',
+        description: 'd',
+        confidence: 0.95,
+        calculationVersion: 'v1.0-deterministic',
+        supportingTransactionIds: ['txn_alice_1'],
+        periodStart: PERIOD.start,
+        periodEnd: PERIOD.end,
+        recommendations: [
+          {
+            action_type: 'REDUCE_FREQUENCY',
+            title: 'Fewer small buys',
+            description: 'd',
+            potential_savings_min: 100,
+            potential_savings_max: 400,
+            calculation_method: 'engine',
+            calculationVersion: 'v1.0-deterministic',
+            supportingTransactionIds: ['txn_alice_1'],
+          },
+        ],
+      },
+    ]);
+
+    // Nothing here clears memory, because the relational store is the only place
+    // the insight was ever written. Reading it back is the whole assertion.
+    const stored = await insights.listInsights(alice);
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0].title, 'Durable finding');
+  });
+
+  test('the saving figure reaches the card even though it is not a column on insights', async () => {
+    const rows = await insights.listInsights(alice);
+    const byInsight = await insights.recommendationsByInsight(alice);
+    const withRecs = rows.map((row) => insights.toClientInsight(row, byInsight.get(row.id) ?? []));
+
+    const card = withRecs.find((i) => i.title === 'Durable finding');
+    assert.ok(card, 'the finding with a recommendation must be present');
+    assert.equal(card.potential_savings_bdt, 400);
+    assert.equal(card.summary, 'd', 'the prose the views read must survive the rename');
+    assert.deepEqual(card.supporting_transaction_ids, ['txn_alice_1']);
+  });
+
+  test('a recommendation is never returned without the insight it cites', async () => {
+    const recs = await insights.listRecommendations(alice);
+    assert.ok(recs.length > 0, 'the recommendation written above must be readable');
+    for (const rec of recs) {
+      const parent = await insights.getInsight(alice, rec.insight_id);
+      assert.ok(parent, `recommendation ${rec.id} points at a missing insight`);
+      assert.equal(parent.account_id, alice, 'a recommendation must never cross accounts');
+    }
+  });
+
+  test('recomputation replaces recommendations as well as insights', async () => {
+    const before = await insights.listRecommendations(alice);
+    assert.ok(before.length > 0);
+
+    await insights.replaceInsights(alice, [
+      {
+        type: 'PERIOD_COMPARISON',
+        title: 'No recommendations this time',
+        description: 'd',
+        confidence: 0.8,
+        calculationVersion: 'v1.0-deterministic',
+        supportingTransactionIds: ['txn_alice_1'],
+        periodStart: PERIOD.start,
+        periodEnd: PERIOD.end,
+        recommendations: [],
+      },
+    ]);
+
+    const after = await insights.listRecommendations(alice);
+    assert.deepEqual(after, [], 'stale recommendations must not outlive their insight');
+  });
+
+  // Feedback was written to an in-memory array and read back for `tracked`, so a
+  // saving marked acted-on showed as untracked after a restart. It moved to the
+  // relational store because the lookups for it and for the recommendation itself
+  // both read the maps, which no longer hold insights or recommendations at all.
+  test('an acted_on mark survives and is returned in one query', async () => {
+    // Seeded here rather than borrowed from an earlier test: a later test replaces
+    // recommendations with none, so depending on their presence would be an
+    // order-dependent test that passes for the wrong reason.
+    await insights.replaceInsights(alice, [
+      {
+        type: 'SMALL_PURCHASES',
+        title: 'Feedback target',
+        description: 'd',
+        confidence: 0.9,
+        calculationVersion: 'v1.0-deterministic',
+        supportingTransactionIds: ['txn_alice_1'],
+        periodStart: PERIOD.start,
+        periodEnd: PERIOD.end,
+        recommendations: [
+          {
+            action_type: 'REDUCE_FREQUENCY',
+            title: 'A saving to track',
+            description: 'd',
+            potential_savings_min: 100,
+            potential_savings_max: 200,
+            calculation_method: 'engine',
+            calculationVersion: 'v1.0-deterministic',
+            supportingTransactionIds: ['txn_alice_1'],
+          },
+        ],
+      },
+    ]);
+
+    const stored = await insights.listRecommendations(alice);
+    assert.ok(stored.length > 0, 'a recommendation must exist to mark');
+
+    await feedback.recordFeedback({
+      accountId: alice,
+      objectType: 'Recommendation',
+      objectId: stored[0].id,
+      feedbackType: 'acted_on',
+    });
+
+    const tracked = await feedback.actedOnIds(alice, 'Recommendation', stored.map((r) => r.id));
+    assert.equal(tracked.has(stored[0].id), true);
+  });
+
+  test('another account cannot see the mark', async () => {
+    const stored = await insights.listRecommendations(alice);
+    const tracked = await feedback.actedOnIds(bob, 'Recommendation', stored.map((r) => r.id));
+    assert.equal(tracked.size, 0, 'feedback is scoped to the account that gave it');
+  });
+
+  // The defect this pins: insight and recommendation ids were generated randomly on
+  // every recompute. Marking a saving acted-on stored the mark against `rec_A`; the
+  // next recompute — which the manual-entry, edit, confirm, and delete routes all
+  // trigger — replaced it with `rec_B`, and the mark silently vanished. Content-seeded
+  // ids keep the record addressable across a recompute that produces the same finding.
+  test('an acted_on mark survives a recompute that produces the same finding', async () => {
+    const finding = {
+      type: 'MERCHANT_FREQUENCY',
+      title: 'Feedback survives recompute',
+      description: 'd',
+      confidence: 0.9,
+      calculationVersion: 'v1.0-deterministic',
+      supportingTransactionIds: ['txn_alice_1'],
+      periodStart: PERIOD.start,
+      periodEnd: PERIOD.end,
+      recommendations: [
+        {
+          action_type: 'REDUCE_FREQUENCY',
+          title: 'Stable saving',
+          description: 'd',
+          potential_savings_min: 100,
+          potential_savings_max: 250,
+          calculation_method: 'engine',
+          calculationVersion: 'v1.0-deterministic',
+          supportingTransactionIds: ['txn_alice_1'],
+        },
+      ],
+    };
+
+    const first = await insights.replaceInsights(alice, [finding]);
+    const recBefore = await insights.listRecommendations(alice);
+    assert.equal(recBefore.length, 1);
+    assert.equal(recBefore[0].id, first.recommendationIds[0]);
+
+    await feedback.recordFeedback({
+      accountId: alice,
+      objectType: 'Recommendation',
+      objectId: recBefore[0].id,
+      feedbackType: 'acted_on',
+    });
+
+    const second = await insights.replaceInsights(alice, [finding]);
+    const recAfter = await insights.listRecommendations(alice);
+    assert.equal(recAfter.length, 1);
+    assert.equal(
+      second.recommendationIds[0],
+      first.recommendationIds[0],
+      'ids must be stable while the finding is unchanged',
+    );
+    assert.equal(recAfter[0].id, recBefore[0].id);
+
+    const tracked = await feedback.actedOnIds(alice, 'Recommendation', recAfter.map((r) => r.id));
+    assert.equal(tracked.has(recAfter[0].id), true, 'the mark must outlive the recompute');
+  });
+
+  test('a recommendation can be fetched on its own, which the feedback route needs', async () => {
+    const stored = await insights.listRecommendations(alice);
+    assert.ok(stored.length > 0, 'the seeded recommendation must still be present');
+    const one = await insights.getRecommendation(alice, stored[0].id);
+    assert.ok(one, 'the in-memory map would have returned nothing here');
+    assert.equal(await insights.getRecommendation(bob, stored[0].id), null);
+  });
+
+  test('rejects a type the engine never emits', async () => {
+    // The CHECK is the last line of defence. Engine output is trusted code, but a
+    // future detector emitting a name the table does not allow should fail loudly
+    // here rather than silently dropping clues in production.
+    await assert.rejects(
+      () =>
+        insights.replaceInsights(alice, [
+          {
+            type: 'MICRO_SPEND',
+            title: 'Stale vocabulary',
+            description: 'd',
+            confidence: 0.5,
+            calculationVersion: 'v1.0-deterministic',
+            supportingTransactionIds: ['txn_alice_1'],
+            periodStart: PERIOD.start,
+            periodEnd: PERIOD.end,
+            recommendations: [],
+          },
+        ]),
+      /CHECK constraint failed/,
+    );
+  });
+
   test('replaces rather than accumulating, so stale findings do not linger', async () => {
     await insights.replaceInsights(alice, [
       {
-        type: 'MICRO_SPEND',
+        type: 'SMALL_PURCHASES',
         title: 'Second run',
         description: 'd',
         confidence: 0.9,
@@ -341,6 +565,7 @@ describe('insights', () => {
         supportingTransactionIds: ['txn_alice_1'],
         periodStart: PERIOD.start,
         periodEnd: PERIOD.end,
+        recommendations: [],
       },
     ]);
     const listed = await insights.listInsights(alice);

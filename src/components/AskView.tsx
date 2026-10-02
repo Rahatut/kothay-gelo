@@ -18,7 +18,7 @@ const t = {
   en: {
     title: 'Chat about your money',
     subtitle:
-      'Ask anything about your spending, income, merchants, bills, trends, or savings. Every number comes from your ledger — the AI only phrases, it never computes. Nothing is stored beyond this session.',
+      'Ask anything about your spending, income, merchants, bills, trends, or savings. Every number comes from your ledger — the AI only phrases, it never computes. Your questions are not saved.',
     placeholder: 'How much did I spend on food this month?',
     submit: 'Send',
     sending: 'Checking your ledger…',
@@ -35,7 +35,7 @@ const t = {
   bn: {
     title: 'আপনার অর্থ সম্পর্কে চ্যাট করুন',
     subtitle:
-      'খরচ, আয়, বণিক, বিল, প্রবণতা বা সঞ্চয় নিয়ে যেকোনো প্রশ্ন করুন। প্রতিটি সংখ্যা আপনার খতিয়ান থেকে আসে — AI কেবল ভঙ্গি দেয়, হিসাব করে না। এই সেশনের পরে কিছুই সংরক্ষণ করা হয় না।',
+      'খরচ, আয়, বণিক, বিল, প্রবণতা বা সঞ্চয় নিয়ে যেকোনো প্রশ্ন করুন। প্রতিটি সংখ্যা আপনার খতিয়ান থেকে আসে — AI কেবল ভঙ্গি দেয়, হিসাব করে না। আপনার প্রশ্ন সংরক্ষণ করা হয় না।',
     placeholder: 'গত মাসে খাবারে কত খরচ হয়েছে?',
     submit: 'পাঠান',
     sending: 'আপনার খতিয়ান দেখছি…',

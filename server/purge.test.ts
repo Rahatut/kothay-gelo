@@ -241,6 +241,149 @@ describe('purging tenant data', () => {
     );
   });
 
+  /**
+ * Surfaces the purge missed.
+ *
+ * The relational purge was correct while two in-memory collections outlived it:
+ * `db.evidence` and `db.processingJobs`. Both stayed readable through the API
+ * afterwards, so a purge that reported success still returned the user's own
+ * statement contents — `GET /v1/evidence/:id` served the quoted transaction line
+ * and `GET /v1/processing/:job_id` served the job with its extracted row count.
+ *
+ * Neither appears in `purge-preview`, so the existing assertions in this file could
+ * not see them. These two reach the endpoints directly.
+ */
+describe('the purge reaches the in-memory surfaces it used to miss', () => {
+  test('a processing job is not readable after the purge', async () => {
+    const account = await makeAccount();
+    const uploadRes = await account.call('POST', '/v1/uploads', {
+      filename: 'sep.csv',
+      content: STATEMENT,
+      mime_type: 'text/csv',
+    });
+    const jobId = uploadRes.body?.processing_job_id ?? uploadRes.body?.data?.processing_job_id;
+    assert.ok(jobId, `the upload must report a job id: ${JSON.stringify(uploadRes.body)}`);
+
+    const before = await account.call('GET', `/v1/processing/${jobId}`);
+    assert.equal(before.status, 200, 'the job must be readable while it is the user\'s own');
+
+    await account.call('POST', '/v1/settings/reset');
+
+    const after = await account.call('GET', `/v1/processing/${jobId}`);
+    assert.equal(
+      after.status,
+      404,
+      `a purged job was still readable: ${JSON.stringify(after.body)}`,
+    );
+  });
+
+  test('evidence is not readable after the purge', async () => {
+    const account = await makeAccount();
+    await upload(account);
+
+    // Collect an evidence id from the transaction's own evidence endpoint.
+    const txBody = await account.read('/v1/transactions');
+    const tx = txBody?.data?.[0];
+    assert.ok(tx?.id, 'the upload produced no transaction to read evidence from');
+    const evBody = await account.read(`/v1/transactions/${tx.id}/evidence`);
+    // The route returns `{ transaction, evidence, all_evidence }`; `evidence` is a
+    // single record or null, so `all_evidence` is the list to read.
+    const records: unknown[] = Array.isArray(evBody?.data?.all_evidence)
+      ? evBody.data.all_evidence
+      : Array.isArray(evBody?.data?.evidence)
+        ? evBody.data.evidence
+        : [];
+    const evId = (records[0] as { id?: string } | undefined)?.id;
+    assert.ok(evId, `expected an evidence record: ${JSON.stringify(evBody).slice(0, 300)}`);
+
+    const before = await account.call('GET', `/v1/evidence/${evId}`);
+    assert.equal(before.status, 200, 'evidence must be readable while it is the user\'s own');
+
+    await account.call('POST', '/v1/settings/reset');
+
+    const after = await account.call('GET', `/v1/evidence/${evId}`);
+    assert.equal(
+      after.status,
+      404,
+      `purged evidence was still readable: ${JSON.stringify(after.body)}`,
+    );
+  });
+
+  test('deleting the account erases the data, not just the account flag', async () => {
+    // `markAccountDeleted` on its own answered "Account deleted and every session
+    // revoked" while every financial row the account owned stayed in the store.
+    const account = await makeAccount();
+    await upload(account);
+    assert.ok((await ledgerSize(account)) > 0);
+
+    const del = await account.call('POST', '/v1/settings/delete-account');
+    assert.equal(del.status, 200, `delete failed: ${JSON.stringify(del.body)}`);
+    assert.match(del.body.message ?? '', /erased/i);
+  });
+
+  /**
+   * The purge missed the two newest account-scoped tables.
+   *
+   * `consents` and `feedback` were added after the purge table list was written and
+   * were never added to it. Both carry `account_id`, and `markAccountDeleted` is a
+   * soft delete, so the `ON DELETE CASCADE` on them never fires. The purge reported
+   * `complete: true` while a consent row (including its `ip_hash`) and a free-text
+   * feedback comment survived. Neither appeared in `purge-preview`, which is why the
+   * message assertion alone could not catch it.
+   */
+  test('consents and feedback do not outlive the purge', async () => {
+    const account = await makeAccount();
+    // Richer than `upload`'s statement so the engine emits an insight with a
+    // recommendation, which the feedback route needs a target for.
+    const rich = [
+      '01/09/2026 Credit Salary 85,000.00',
+      '01/09/2026 120.00 Foodpanda',
+      '02/09/2026 150.00 Foodpanda',
+      '03/09/2026 90.00 Pathao',
+      '04/09/2026 80.00 Pathao',
+      '05/09/2026 95.00 Daraz',
+      '06/09/2026 85.00 Daraz',
+      '07/09/2026 70.00 Chaldal',
+    ].join('\n');
+    const up = await account.call('POST', '/v1/uploads', {
+      filename: 'rich.csv',
+      content: rich,
+      mime_type: 'text/csv',
+    });
+    assert.equal(up.status, 200, `upload failed: ${JSON.stringify(up.body)}`);
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      if (((await account.read('/v1/transactions')).total ?? 0) > 0) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    const consent = await account.call('POST', '/v1/settings/consents', {
+      consent_type: 'FINANCIAL_DATA_PROCESSING',
+      accepted: true,
+    });
+    assert.equal(consent.status, 200, `consent failed: ${JSON.stringify(consent.body)}`);
+
+    const recs = await account.read('/v1/recommendations');
+    const rec = (recs?.data ?? [])[0];
+    assert.ok(rec?.id, `expected a recommendation to give feedback on: ${JSON.stringify(recs).slice(0, 300)}`);
+    const fb = await account.call('POST', `/v1/recommendations/${rec.id}/feedback`, {
+      feedback_type: 'acted_on',
+    });
+    assert.equal(fb.status, 200, `feedback failed: ${JSON.stringify(fb.body)}`);
+
+    const preview = await account.read('/v1/settings/purge-preview');
+    assert.equal((preview.data as Record<string, number>).feedback, 1);
+    assert.equal((preview.data as Record<string, number>).consents, 1);
+
+    const purge = await account.call('POST', '/v1/settings/reset');
+    assert.equal(purge.status, 200, `purge failed: ${JSON.stringify(purge.body)}`);
+
+    const after = await account.read('/v1/settings/purge-preview');
+    assert.equal((after.data as Record<string, number>).feedback, 0, 'feedback survived the purge');
+    assert.equal((after.data as Record<string, number>).consents, 0, 'consents survived the purge');
+  });
+});
+
   test('a purge with nothing to remove says so rather than claiming success blindly', async () => {
     const account = await makeAccount();
     const purge = await account.call('POST', '/v1/settings/reset');

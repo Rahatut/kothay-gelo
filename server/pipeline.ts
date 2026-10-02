@@ -4,6 +4,9 @@ import { extractWithGemini, type ExtractedCandidate } from './gemini';
 import { ocrImageBase64 } from './ocr';
 import { parseRow } from './rowParse';
 import { insertExtractedRows } from './db/repositories/transactions';
+import { completeDocument } from './db/repositories/documents';
+import { upsertProcessingJob } from './db/repositories/processingJobs';
+import { recomputeInsightsForAccount } from './recompute';
 import { UNCATEGORIZED_CATEGORY_ID } from './categories';
 import { DocumentRecord, ProcessingJob, ProcessingStage, Evidence, Transaction } from '../src/types';
 
@@ -110,15 +113,24 @@ export class ProcessingPipeline {
     };
 
     db.processingJobs.set(job.id, job);
+    await this.persistJob(job, doc.user_id);
     db.logAudit(doc.user_id, 'PROCESSING_STARTED', 'ProcessingJob', job.id, `Started extraction for ${doc.filename}`);
 
     // Run asynchronous pipeline through the defined state machine stages
-    this.runStages(job, doc, fileContent, isBase64Image, mimeType).catch(err => {
+    this.runStages(job, doc, fileContent, isBase64Image, mimeType).catch(async err => {
       console.error('[Pipeline] Error in processing execution:', err);
       job.status = 'FAILED';
       job.stage = 'FAILED';
-      job.error_code = 'PIPELINE_ERROR';
+      // A stage that named its own failure keeps its code. Overwriting it with a
+      // generic one loses the distinction between "this file had no rows in it"
+      // and "the database was unreachable", and the client renders a different
+      // message for each. Only an unnamed failure is PIPELINE_ERROR.
+      if (!job.error_code) {
+        job.error_code = 'PIPELINE_ERROR';
+      }
       job.error_message = err.message || 'Processing failed unexpectedly';
+      job.completed_at = new Date().toISOString();
+      await this.persistJob(job, doc.user_id);
       db.logAudit(doc.user_id, 'PROCESSING_FAILED', 'ProcessingJob', job.id, job.error_message || '');
     });
 
@@ -159,6 +171,36 @@ export class ProcessingPipeline {
     job.status = stage;
     if (doc) {
       doc.stage = stage;
+      await this.persistJob(job, doc.user_id);
+    }
+  }
+
+  /**
+   * Writes the current job snapshot to the durable store.
+   *
+   * Best-effort on purpose: the document row is the primary record and already
+   * carries the terminal stage, so a failure to write this supplementary snapshot
+   * must not turn a successful upload into an error. It is logged, not swallowed.
+   */
+  private static async persistJob(job: ProcessingJob, accountId: string): Promise<void> {
+    try {
+      await upsertProcessingJob({
+        id: job.id,
+        accountId,
+        documentId: job.document_id,
+        status: job.status,
+        stage: job.stage,
+        attempt: job.attempt,
+        pipelineVersion: job.pipeline_version,
+        extractedCount: job.extracted_count,
+        errorCode: job.error_code ?? null,
+        errorMessage: job.error_message ?? null,
+        startedAt: job.started_at,
+        completedAt: job.completed_at ?? null,
+        createdAt: job.created_at,
+      });
+    } catch (err) {
+      console.error('[Pipeline] Could not persist processing job:', err);
     }
   }
 
@@ -189,6 +231,20 @@ export class ProcessingPipeline {
 
     // 3. EXTRACTING
     await this.updateStage(job, 'EXTRACTING', doc);
+
+    // Checked before extraction rather than after. By the time a model call or
+    // an OCR pass has finished, the event loop has already been held.
+    const statementChars = fileContent.length;
+    if (statementChars > ProcessingPipeline.MAX_STATEMENT_CHARS) {
+      job.error_code = 'STATEMENT_TOO_LARGE';
+      throw new Error(
+        `That file contains about ${(statementChars / 1_000_000).toFixed(1)}M characters of ` +
+          `content, past the ${(
+            ProcessingPipeline.MAX_STATEMENT_CHARS / 1_000_000
+          ).toFixed(0)}M limit for one statement. Nothing was added to your ledger.`,
+      );
+    }
+
     let candidates = await extractWithGemini(fileContent, isBase64Image, mimeType);
 
     // Fallback: If Gemini returned empty (e.g. no key or offline), use deterministic parser for CSV/text
@@ -375,18 +431,78 @@ export class ProcessingPipeline {
       );
     }
 
+    // 7c. REFUSING AN EMPTY EXTRACTION
+    //
+    // Zero rows is a failure, not a success with nothing in it. The previous
+    // version reported `COMPLETED` with `extracted_count: 0`, and the client
+    // rendered a success panel and toasted "Statements processed." — so a
+    // statement the parser could not read one row of looked exactly like a
+    // statement it had read completely and found nothing to file.
+    //
+    // Verified against a running server: a five-row CSV produced
+    // `status: COMPLETED, extracted_count: 0` and an empty ledger. The cause was
+    // `rowParse`'s bare-integer pattern, but the reporting is the defect worth
+    // fixing, because it hid every other cause of an empty extraction too.
+    //
+    // A statement genuinely containing no transactions is a real possibility, so
+    // the refusal says what was read and what was not rather than asserting the
+    // file was bad.
+    if (createdTransactions.length === 0) {
+      const reason =
+        `No transaction rows could be read from ${doc.filename}. ` +
+        'Nothing was added to your ledger.';
+
+      doc.status = 'FAILED';
+      job.status = 'FAILED';
+      job.stage = 'FAILED';
+      job.error_code = 'NO_ROWS_EXTRACTED';
+      job.error_message = reason;
+      (doc as DocumentRecord & { error_message?: string }).error_message = reason;
+      job.completed_at = new Date().toISOString();
+      // The relational row has to learn the failure too, or a reader that trusts
+      // `source_documents` rather than the in-memory record — which is every
+      // reader except `/v1/uploads` — sees a document stuck at VALIDATING with
+      // no row count and no explanation.
+      await completeDocument(doc.user_id, doc.id, { stage: 'FAILED' });
+      db.logAudit(doc.user_id, 'PROCESSING_FAILED', 'ProcessingJob', job.id, reason);
+
+      // Thrown rather than returned so the audit and the log record the failure
+      // exactly once, through the one path that already handles it.
+      throw new Error(reason);
+    }
+
     job.extracted_count = createdTransactions.length;
     doc.status = 'PROCESSED';
     doc.stage = 'COMPLETED';
     doc.extracted_candidate_count = createdTransactions.length;
+    await completeDocument(doc.user_id, doc.id, {
+      stage: 'COMPLETED',
+      rowCount: createdTransactions.length,
+      // The period is measured from the rows that were actually filed, not from
+      // the filename and not from today's date.
+      periodStart: createdTransactions.reduce(
+        (min, tx) => (tx.transaction_date < min ? tx.transaction_date : min),
+        createdTransactions[0].transaction_date,
+      ),
+      periodEnd: createdTransactions.reduce(
+        (max, tx) => (tx.transaction_date > max ? tx.transaction_date : max),
+        createdTransactions[0].transaction_date,
+      ),
+    });
 
-    // Recalculate deterministic insights and recommendations
-    db.recalculateUserInsights(doc.user_id);
+    // Recalculates and persists the deterministic insights. This was
+    // `db.recalculateUserInsights`, which read and wrote the in-memory maps: the
+    // upload produced clues, and the read path found none of them, because
+    // `GET /v1/insights` reads the relational store. `server/recompute.ts` is the
+    // single implementation now shared with the manual entry, edit, confirm, and
+    // delete routes, so an upload and an edit cannot disagree.
+    await recomputeInsightsForAccount(doc.user_id);
 
     // 9. COMPLETED
     job.status = 'COMPLETED';
     job.stage = 'COMPLETED';
     job.completed_at = new Date().toISOString();
+    await this.persistJob(job, doc.user_id);
 
     db.logAudit(
       doc.user_id,
@@ -409,26 +525,38 @@ export class ProcessingPipeline {
    * confidence, so the reviewer sees them. They are never dropped silently and
    * never completed by guessing.
    */
+  /**
+   * Ceiling on the text handed to the extraction stage, in characters.
+   *
+   * `MAX_ROW_CHARS` in `rowParse` bounds one line, which is necessary but not
+   * sufficient. Cost is linear in characters, so a 25 MB upload of 2,000-char
+   * lines still reaches thousands of lines and several seconds of blocked event
+   * loop — one request, no concurrency, no way for another account to be served
+   * meanwhile. The per-line bound shrank the problem; it did not close it.
+   *
+   * 4 M characters is roughly 50,000 statement rows at the length of a real
+   * bKash row, so it is far above any statement a person would actually hold
+   * and far below anything a denial-of-service needs. The check is here, before
+   * the model call, the OCR pass, or the parser, because all three scale with the
+   * same input.
+   *
+   * It refuses rather than truncates. Truncating would file a partial statement
+   * and report it as a complete one, which is the same defect as reporting an
+   * unreadable statement as a successful empty extraction.
+   */
+  private static readonly MAX_STATEMENT_CHARS = 4_000_000;
+
   private static deterministicTextExtraction(text: string) {
     const candidates: ExtractedCandidate[] = [];
 
     for (const rawLine of text.split('\n')) {
       const line = rawLine.trim();
-      if (
-        !line ||
-        line.startsWith('---') ||
-        line.startsWith('Account') ||
-        line.startsWith('Date') ||
-        line.startsWith('Sl') ||
-        line.startsWith('Total')
-      ) {
-        continue;
-      }
+      if (!line) continue;
 
       const row = parseRow(line);
-      // No date and no amount means nothing in the line to file. Returning null
-      // here is not a silent drop: such a line is a header or a page footer,
-      // and the row count is reported separately from the extraction result.
+      // No date and no amount means nothing in the line to file, which is what a
+      // header or a page footer is. `parseRow` has already rejected the summary
+      // lines it knows about, so this is a line with no figures at all.
       if (!row) continue;
       if (row.date === null || row.amount === null) continue;
 

@@ -29,6 +29,49 @@ import { extractText } from 'unpdf';
 /** A base64 payload larger than this is refused before parsing. */
 export const MAX_PDF_BYTES = 25 * 1024 * 1024;
 
+/**
+ * Ceilings applied to an extracted PDF.
+ *
+ * `MAX_PDF_BYTES` alone bounds nothing that matters here. A 25 MB PDF can hold
+ * thousands of pages, and every page becomes text that the model call, the OCR
+ * path, and the deterministic parser all have to walk. One such request occupied
+ * the event loop for minutes. Both ceilings sit far above any real statement — a
+ * five-year bKash export is a few dozen pages — and they are checked after
+ * extraction because `unpdf` exposes no page limit.
+ *
+ * Both refuse rather than truncate. A partially parsed statement reported as a
+ * complete one is worse than a refusal, because the user cannot tell which of
+ * the two they received.
+ */
+export const MAX_PDF_PAGES = 120;
+export const MAX_PDF_TEXT_CHARS = 4_000_000;
+
+/**
+ * Whether a base64 payload is a PDF, decided from the bytes.
+ *
+ * The route used to decide this from `mime_type === 'application/pdf'` or a
+ * `.pdf` filename — both client-supplied. A real PDF posted as `text/plain` with
+ * a `.csv` name therefore never reached the extractor and its base64 was fed to
+ * the text parser as gibberish. The declaration is attacker-controlled in exactly
+ * the cases that matter: the same content with a different `mime_type` is a
+ * different route, which makes the route itself an input.
+ *
+ * `JVBERi0` is the base64 of `%PDF-`, so a standard-encoded PDF is recognisable
+ * from its first characters without decoding. The check also decodes the first
+ * bytes when it can, to catch encodings that do not begin at a multiple of three
+ * characters.
+ */
+export function looksLikeBase64Pdf(payload: string): boolean {
+  if (typeof payload !== 'string' || payload.length < 8) return false;
+  const head = payload.replace(/\s+/g, '').slice(0, 64);
+  if (head.startsWith('JVBERi0')) return true;
+  const bytes = decodeBase64(head);
+  if (!bytes || bytes.length < 5) return false;
+  let signature = '';
+  for (let i = 0; i < 5; i++) signature += String.fromCharCode(bytes[i]);
+  return signature === '%PDF-';
+}
+
 export interface PdfTextPage {
   /** 1-based, as printed on the page. */
   pageNumber: number;
@@ -130,6 +173,32 @@ export async function extractPdfText(pdfBase64: string): Promise<PdfExtraction> 
   }));
 
   const printable = pages.reduce((sum, p) => sum + p.text.replace(/\s/g, '').length, 0);
+
+  if (printable >= 20 && pages.length > MAX_PDF_PAGES) {
+    return {
+      ok: false,
+      pages,
+      reason: 'too_many_pages',
+      byteSize: bytes.length,
+      message:
+        `That PDF has ${pages.length} pages, past the ${MAX_PDF_PAGES}-page limit for one ` +
+        'statement. Export a shorter date range, or upload the period as a separate file.',
+    };
+  }
+
+  const textChars = pages.reduce((sum, p) => sum + p.text.length, 0);
+  if (printable >= 20 && textChars > MAX_PDF_TEXT_CHARS) {
+    return {
+      ok: false,
+      pages,
+      reason: 'too_much_text',
+      byteSize: bytes.length,
+      message:
+        `That PDF contains about ${(textChars / 1_000_000).toFixed(1)}M characters of text, ` +
+        `past the ${(MAX_PDF_TEXT_CHARS / 1_000_000).toFixed(0)}M limit for one statement. ` +
+        'Export a shorter date range, or upload the period as a separate file.',
+    };
+  }
 
   if (printable < 20) {
     // Too little to be a statement. Almost always a scan or an image-only export.

@@ -70,6 +70,22 @@ export async function evidenceForTransactions(
   return grouped;
 }
 
+/**
+ * One evidence record, scoped to its owner.
+ *
+ * Scoped on the evidence table's own `account_id`, so a guessed id cannot read
+ * another tenant's quoted statement line. The route that calls this previously read
+ * the in-memory map, which is never repopulated on boot, so every evidence link in a
+ * transaction still 404'd after a restart.
+ */
+export async function getEvidence(accountId: string, evidenceId: string): Promise<EvidenceRow | null> {
+  const rows = await query<EvidenceRow>(
+    `SELECT * FROM evidence WHERE account_id = ? AND id = ?`,
+    [accountId, evidenceId],
+  );
+  return rows[0] ?? null;
+}
+
 /** True when the transaction cites at least one evidence record. */
 export async function hasEvidence(accountId: string, transactionId: string): Promise<boolean> {
   const rows = await query<{ n: number }>(

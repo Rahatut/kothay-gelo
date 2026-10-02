@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 /**
  * Prefixed, collision-resistant record identifiers.
@@ -12,6 +12,23 @@ import { randomUUID } from 'node:crypto';
 function newId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
 }
+
+/**
+ * Deterministic identifier derived from a seed.
+ *
+ * Insights and recommendations are replaced wholesale on every recompute. With a
+ * random id, two recomputes over unchanged data produce different ids, so feedback
+ * the user recorded against a recommendation (keyed by its id) is orphaned the next
+ * time any transaction is added, edited, confirmed, or deleted. Seeding the id from
+ * the record's own content keeps it stable while the record is unchanged, which is
+ * what makes the feedback durable.
+ */
+function stableId(prefix: string, seed: string): string {
+  return `${prefix}_${createHash('sha256').update(seed).digest('hex').slice(0, 24)}`;
+}
+
+export const stableInsightId = (seed: string): string => stableId('ins', seed);
+export const stableRecommendationId = (seed: string): string => stableId('rec', seed);
 
 export const newAccountId = (): string => newId('acct');
 export const newSessionId = (): string => newId('sess');

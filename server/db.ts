@@ -19,39 +19,8 @@ import {
   calculatePeriodMetrics,
   calculateCategoryBreakdown,
   calculateMerchantConcentration,
-  generateDeterministicInsights,
-  mostActivePeriodKey,
-  previousPeriodKey,
   periodLabelOf,
 } from './financialEngine';
-
-/**
- * Splits a user's rows into the current period and the one before it.
- *
- * "Current" is the latest period actually present in the data, so a row entered
- * today lands in a total instead of vanishing. This replaces a hardcoded
- * '2026-09' prefix that silently excluded every other date. With no usable rows
- * at all the UTC calendar month supplies the label, so an empty dashboard still
- * names the period it is reporting on.
- */
-function splitCurrentAndPreviousPeriod(allTxns: Transaction[]): {
-  currentKey: string;
-  currentTxns: Transaction[];
-  previousTxns: Transaction[];
-} {
-  const fromData = mostActivePeriodKey(allTxns);
-  const currentKey =
-    fromData ??
-    `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
-  const previousKey = previousPeriodKey(currentKey);
-  return {
-    currentKey,
-    currentTxns: allTxns.filter(t => t.transaction_date.startsWith(currentKey)),
-    previousTxns: previousKey
-      ? allTxns.filter(t => t.transaction_date.startsWith(previousKey))
-      : [],
-  };
-}
 
 export class MemoryDatabase {
   public users: Map<string, UserProfile> = new Map();
@@ -109,23 +78,14 @@ export class MemoryDatabase {
     return null;
   }
 
-  public recalculateUserInsights(userId: string) {
-    const allTxns = Array.from(this.transactions.values()).filter(t => t.user_id === userId);
-    const { currentTxns, previousTxns } = splitCurrentAndPreviousPeriod(allTxns);
-
-    const { insights, recommendations } = generateDeterministicInsights(currentTxns, previousTxns, userId);
-
-    // Replace existing active insights
-    Array.from(this.insights.values())
-      .filter(i => i.user_id === userId)
-      .forEach(i => this.insights.delete(i.id));
-
-    Array.from(this.recommendations.values())
-      .filter(r => r.user_id === userId)
-      .forEach(r => this.recommendations.delete(r.id));
-
-    insights.forEach(ins => this.insights.set(ins.id, ins));
-    recommendations.forEach(rec => this.recommendations.set(rec.id, rec));
+  /**
+   * Retired. This read `this.transactions` and wrote `this.insights`, while the
+   * upload pipeline called it and `GET /v1/insights` read the relational store — so
+   * an upload produced clues that no read path could return. `server/recompute.ts`
+   * is the single implementation and both call sites now use it.
+   */
+  public recalculateUserInsights(_userId: string): never {
+    throw new Error('Use recomputeInsightsForAccount from server/recompute.ts');
   }
 
   public deleteUserAccount(userId: string) {

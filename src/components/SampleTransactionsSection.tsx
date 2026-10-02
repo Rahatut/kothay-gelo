@@ -20,6 +20,9 @@ export const SampleTransactionsSection: React.FC<SampleTransactionsSectionProps>
         <div className="max-w-2xl mb-16">
           <p className="type-caption-uppercase text-muted mb-3">Transaction interpretation</p>
           <h2 className="type-display-md text-ink">How raw logs turn into meaning.</h2>
+          <p className="type-caption text-muted-soft mt-4">
+            Example rows from a demo statement, not your ledger.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">

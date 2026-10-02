@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { getClient } from './client';
+import { query, execute, transaction, closeClient, getClient } from './client';
+import { isPostgresDatabase } from '../config';
 
 /**
  * Migration runner.
@@ -8,12 +9,11 @@ import { getClient } from './client';
  * Hand-rolled on purpose. A migration framework earns its cost across multiple
  * dialects, environments, seeding strategies, and down-migrations; this project
  * has exactly one dialect and one database, and a framework would add a
- * dependency plus a config file to solve a problem `PRAGMA user_version`
- * already solves in one line.
+ * dependency plus a config file to solve a problem a simple version table
+ * already solves.
  *
- * A query builder was explicitly rejected for the same reason it is rejected in
- * research.md Q3: it would pull SQL construction into route and service code,
- * where it competes with the financial engine as the place figures are produced.
+ * For Postgres: uses a `schema_migrations` table with advisory lock for
+ * concurrency. For SQLite: uses `PRAGMA user_version`.
  */
 
 const MIGRATIONS_DIR = path.join(process.cwd(), 'server', 'db', 'migrations');
@@ -49,8 +49,6 @@ async function loadMigrations(): Promise<Migration[]> {
 
   migrations.sort((a, b) => a.version - b.version);
 
-  // A duplicated version number means the ordering is ambiguous, and an
-  // out-of-order apply is far harder to diagnose than a duplicate filename.
   for (let i = 1; i < migrations.length; i++) {
     if (migrations[i].version === migrations[i - 1].version) {
       throw new Error(
@@ -64,9 +62,18 @@ async function loadMigrations(): Promise<Migration[]> {
 }
 
 async function currentVersion(): Promise<number> {
-  const result = await getClient().execute('PRAGMA user_version');
-  const row = result.rows[0] as unknown as { user_version?: number } | undefined;
-  return Number(row?.user_version ?? 0);
+  if (isPostgresDatabase()) {
+    const rows = await query<{ version: number }>(
+      `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`,
+    );
+    return rows[0]?.version ?? 0;
+  } else {
+    const client = await getClient();
+    if (!client) return 0;
+    const result = await client.execute({ sql: 'PRAGMA user_version', args: [] });
+    const row = result.rows[0] as unknown as { user_version?: number } | undefined;
+    return Number(row?.user_version ?? 0);
+  }
 }
 
 export interface MigrationResult {
@@ -75,12 +82,11 @@ export interface MigrationResult {
 }
 
 /**
- * Applies every migration newer than `PRAGMA user_version`, each in its own
+ * Applies every migration newer than the current version, each in its own
  * transaction, then records the new version.
  *
- * The version is advanced inside the same transaction as the migration body, so
- * an interrupted apply rolls back to a consistent state rather than leaving
- * schema applied but unrecorded.
+ * For Postgres: uses pg_advisory_xact_lock to prevent concurrent applies.
+ * For SQLite: uses executeMultiple on the client directly (not in a transaction).
  */
 export async function migrate(): Promise<MigrationResult> {
   const migrations = await loadMigrations();
@@ -90,27 +96,43 @@ export async function migrate(): Promise<MigrationResult> {
   for (const migration of migrations) {
     if (migration.version <= from) continue;
 
-    const tx = await getClient().transaction('write');
-    try {
-      // executeMultiple rather than a hand-rolled split: the driver iterates
-      // statements with the SQLite parser, so BEGIN...END trigger bodies and
-      // semicolons inside string literals are handled correctly. Splitting on
-      // ';' would tear a trigger in half and fail with "incomplete input".
-      await tx.executeMultiple(migration.sql);
-      await tx.execute({ sql: `PRAGMA user_version = ${migration.version}` });
-      await tx.commit();
-      applied.push(migration.filename);
-    } catch (err) {
-      await tx.rollback().catch(() => {
-        // Preserve the original failure; it names the offending statement.
+    if (isPostgresDatabase()) {
+      await transaction(async (tx) => {
+        // Acquire advisory lock for this migration version to prevent concurrent applies.
+        await tx.execute(`SELECT pg_advisory_xact_lock($1)`, [migration.version]);
+
+        // Execute the migration SQL. For Postgres, unsafe() accepts multi-statement strings.
+        await tx.execute(migration.sql);
+
+        // Record the version.
+        await tx.execute(
+          `INSERT INTO schema_migrations (version, name, applied_at) VALUES ($1, $2, now())`,
+          [migration.version, migration.name],
+        );
+
+        applied.push(migration.filename);
       });
-      throw new Error(
-        `Migration ${migration.filename} failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    } finally {
-      tx.close();
+    } else {
+      const client = await getClient();
+      if (!client) throw new Error('No libSQL client available');
+
+      // Execute the migration SQL using executeMultiple (handles trigger bodies correctly).
+      // @ts-expect-error - libSQL client has executeMultiple for multi-statement
+      await client.executeMultiple(migration.sql);
+
+      // Record the version in a separate transaction.
+      const libsqlTx = await client.transaction('write');
+      try {
+        await libsqlTx.execute({ sql: `PRAGMA user_version = ${migration.version}`, args: [] });
+        await libsqlTx.commit();
+      } catch (err) {
+        await libsqlTx.rollback().catch(() => {});
+        throw err;
+      } finally {
+        libsqlTx.close();
+      }
+
+      applied.push(migration.filename);
     }
   }
 

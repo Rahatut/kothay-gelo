@@ -13,6 +13,8 @@ import { hasAnyAccount } from '../db/client';
 import { hashPassword, verifyPassword, needsRehash } from './password';
 import { clearSessionCookie, openSession, setSessionCookie } from './session';
 import { requireIdentity } from './guard';
+import { eraseAccountData } from '../erase';
+import { rateLimit, DESTRUCTIVE_RATE_LIMIT } from '../rateLimit';
 
 /**
  * Account lifecycle.
@@ -147,26 +149,52 @@ authRouter.get('/session', requireIdentity, async (req: Request, res: Response) 
 });
 
 /**
- * Deletes the account and revokes every session.
+ * Deletion, from the auth router.
  *
- * Revocation is what makes deletion effective: without it a session issued
- * before deletion would keep working until it expired.
+ * There is a second, equivalent route at `POST /v1/settings/delete-account`. Both
+ * call `eraseAccountData` so neither can erase one store and skip the other. This
+ * one previously called `markAccountDeleted` alone: it answered "ok" while every
+ * statement, transaction, and evidence row the account owned stayed in the
+ * relational store and in the in-memory maps. `/v1/settings/delete-account` had
+ * already been fixed for the relational half; this copy was missed, which is exactly
+ * the failure a shared helper exists to prevent.
+ *
+ * The audit entry is written first, and on purpose: it records that the erasure was
+ * requested, which must survive the cascade that follows.
  */
-authRouter.post('/delete-account', requireIdentity, async (req: Request, res: Response) => {
-  const accountId = req.accountId!;
+authRouter.post(
+  '/delete-account',
+  requireIdentity,
+  // The same limit the settings copy carries. An unauthenticated-adjacent endpoint
+  // that erases an account on a single guessable path is worth bounding.
+  rateLimit(DESTRUCTIVE_RATE_LIMIT),
+  async (req: Request, res: Response) => {
+    const accountId = req.accountId!;
 
-  await recordAudit({
-    accountId,
-    action: 'DELETED',
-    resourceType: 'Account',
-    resourceId: accountId,
-  });
+    try {
+      await recordAudit({
+        accountId,
+        action: 'DELETED',
+        resourceType: 'Account',
+        resourceId: accountId,
+      });
 
-  await markAccountDeleted(accountId);
-  clearSessionCookie(res);
+      await eraseAccountData(accountId);
+      await markAccountDeleted(accountId);
+      clearSessionCookie(res);
 
-  return res.json({ ok: true });
-});
+      return res.json({
+        ok: true,
+        message: 'Account deleted, your data erased, and every session revoked.',
+      });
+    } catch (err) {
+      console.error('[auth] delete-account failed:', err);
+      return res.status(500).json({
+        error: { code: 'DELETE_FAILED', message: 'Could not delete the account.' },
+      });
+    }
+  },
+);
 
 /** Whether this deployment has any account, so the UI can choose a screen. */
 authRouter.get('/has-account', async (_req: Request, res: Response) => {

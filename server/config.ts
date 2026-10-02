@@ -109,11 +109,36 @@ export function port(): number {
 }
 
 /**
+ * Postgres connection URL for the session pooler.
+ * Format: postgresql://user.projectref:password@host:port/dbname?sslmode=require
+ * Only used when DATABASE_URL starts with postgresql://
+ */
+export function postgresUrl(): string | undefined {
+  const url = read('DATABASE_URL');
+  if (url?.startsWith('postgresql://')) {
+    return url;
+  }
+  return read('SUPABASE_APP_DB_URL');
+}
+
+/** True when the database target is Postgres (Supabase pooler). */
+export function isPostgresDatabase(): boolean {
+  const url = read('DATABASE_URL');
+  return url?.startsWith('postgresql://') === true;
+}
+
+/**
  * Fails fast when required configuration is absent. Called once at boot so a
  * misconfigured deployment reports one clear error instead of surfacing a
  * confusing failure on the first request that happens to need the value.
  */
 export function assertRequiredConfig(): void {
   databaseUrl();
+  if (isPostgresDatabase()) {
+    const url = postgresUrl();
+    if (!url) {
+      throw new ConfigError('DATABASE_URL starts with postgresql:// but no connection string found. Set SUPABASE_APP_DB_URL.');
+    }
+  }
   appUrl();
 }
