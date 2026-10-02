@@ -137,36 +137,49 @@ shared by both sides. Do not fork it.
 
 ## 5. API surface
 
-All endpoints are in `server.ts` under the `/v1` prefix, plus `/api/health`.
+Routes are registered in `server.ts`, in the two routers it mounts
+(`server/auth/routes.ts`, `server/capabilities/routes.ts`, `server/ask.ts`), and
+at `/api/health`.
 
 ```
 GET    /api/health
 
-POST   /v1/auth/request-otp          GET/POST /v1/auth/verify-otp   POST /v1/auth/logout
-GET    /v1/users/me
+POST   /v1/auth/register             POST /v1/auth/login
+POST   /v1/auth/logout               GET  /v1/auth/session
+GET    /v1/auth/has-account          POST /v1/auth/delete-account
 
-GET/POST /v1/settings/consents      GET  /v1/settings/audit
+GET/POST /v1/settings/consents       GET  /v1/settings/audit
 POST   /v1/settings/export           POST /v1/settings/delete-account
-POST   /v1/settings/reset
+POST   /v1/settings/reset            GET  /v1/settings/purge-preview
 
 POST   /v1/uploads                   GET  /v1/uploads
 GET    /v1/uploads/:id/status        GET  /v1/processing/:job_id
 POST   /v1/dataset/load-golden
 
-GET    /v1/transactions              GET  /v1/transactions/:id
+GET    /v1/transactions              POST /v1/transactions
+GET/PATCH/DELETE /v1/transactions/:id
 GET    /v1/transactions/:id/evidence POST /v1/transactions/:id/confirm
+GET    /v1/transactions/:id/corrections
 GET    /v1/evidence/:id              GET  /v1/categories
 
-GET    /v1/dashboard                 GET  /v1/dashboard/summary
+GET    /v1/dashboard
 GET    /v1/insights                  GET  /v1/insights/:id
 POST   /v1/insights/:id/feedback     GET|POST /v1/insights/:id/narrate
-GET    /v1/recommendations
+GET    /v1/recommendations           POST /v1/recommendations/:id/feedback
 
-GET/POST /v1/goals                   DELETE /v1/goals/:id
+GET/POST /v1/goals                   GET/PATCH/DELETE /v1/goals/:id
+
+GET    /v1/capabilities              POST /v1/capabilities/:name
+POST   /v1/ask                       POST /v1/ask/feedback
 ```
 
+Auth is email + password (`register`/`login`), not OTP. The earlier
+`request-otp` / `verify-otp` / `users/me` list described routes that no longer
+exist and were removed rather than renamed. The list above was re-derived from
+the route registrations, because the previous version had drifted from them.
+
 JSON body limit is 50 MB on both `express.json` and `express.urlencoded`.
-Adding a route means adding it in `server.ts` and updating this list.
+Adding a route means adding it in its router and updating this list.
 
 ## 6. Architecture invariants
 
