@@ -3,23 +3,19 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
-export default defineConfig(() => {
-  return {
-    plugins: [react(), tailwindcss()],
-    resolve: {
-      alias: {
-        // `import.meta.dirname` rather than `__dirname`: Vite 8 warns that the
-        // CommonJS global is unsupported under its native config loader, and it will
-        // become the default.
-        '@': path.resolve(import.meta.dirname, '.'),
-      },
+const isGitHubPages = process.env.GITHUB_PAGES === 'true';
+const repoName = 'kothay-gelo';
+
+export default defineConfig(() => ({
+  plugins: [react(), tailwindcss()],
+  base: isGitHubPages ? `/${repoName}/` : '/',
+  resolve: {
+    alias: {
+      '@': path.resolve(import.meta.dirname, '.'),
     },
-    server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
-    },
-  };
-});
+  },
+  server: {
+    hmr: process.env.DISABLE_HMR !== 'true',
+    watch: process.env.DISABLE_HMR === 'true' ? null : {},
+  },
+}));
