@@ -133,6 +133,14 @@ export function postgresUrl(): string | undefined {
   return read('SUPABASE_APP_DB_URL');
 }
 
+/**
+ * Postgres connection URL for the transaction pooler (migrations).
+ * Uses SUPABASE_MIGRATION_DB_URL if set, falls back to session pooler.
+ */
+export function migrationPostgresUrl(): string | undefined {
+  return read('SUPABASE_MIGRATION_DB_URL') ?? postgresUrl();
+}
+
 /** True when the database target is Postgres (Supabase pooler). */
 export function isPostgresDatabase(): boolean {
   const url = read('DATABASE_URL');

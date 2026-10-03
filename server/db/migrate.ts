@@ -1,7 +1,8 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import postgres from 'postgres';
 import { query, execute, transaction, closeClient, getClient } from './client';
-import { isPostgresDatabase } from '../config';
+import { isPostgresDatabase, migrationPostgresUrl } from '../config';
 
 /**
  * Migration runner.
@@ -106,21 +107,43 @@ export async function migrate(): Promise<MigrationResult> {
     if (migration.version <= from) continue;
 
     if (isPostgresDatabase()) {
-      await transaction(async (tx) => {
-        // Acquire advisory lock for this migration version to prevent concurrent applies.
-        await tx.execute(`SELECT pg_advisory_xact_lock($1)`, [migration.version]);
-
-        // Execute the migration SQL. For Postgres, unsafe() accepts multi-statement strings.
-        await tx.execute(migration.sql);
-
-        // Record the version.
-        await tx.execute(
-          `INSERT INTO schema_migrations (version, name, applied_at) VALUES ($1, $2, now())`,
-          [migration.version, migration.name],
-        );
-
-        applied.push(migration.filename);
+      const migrationUrl = migrationPostgresUrl();
+      if (!migrationUrl) {
+        throw new Error('No Postgres migration URL available. Set SUPABASE_MIGRATION_DB_URL or DATABASE_URL.');
+      }
+      const pg = postgres(migrationUrl, {
+        types: {
+          numeric: {
+            to: 1700,
+            from: [1700],
+            serialize: (v: number) => v.toString(),
+            parse: (v: string) => Number(v),
+          },
+        },
+        max: 1,
+        idle_timeout: 20,
+        connect_timeout: 30,
       });
+
+      try {
+        await pg.begin(async (tx) => {
+          // Acquire advisory lock for this migration version to prevent concurrent applies.
+          await tx.unsafe(`SELECT pg_advisory_xact_lock($1)`, [migration.version]);
+
+          // Execute the migration SQL. For Postgres, unsafe() accepts multi-statement strings.
+          await tx.unsafe(migration.sql);
+
+          // Record the version.
+          await tx.unsafe(
+            `INSERT INTO schema_migrations (version, name, applied_at) VALUES ($1, $2, now())`,
+            [migration.version, migration.name],
+          );
+
+          applied.push(migration.filename);
+        });
+      } finally {
+        await pg.end({ timeout: 5 });
+      }
     } else {
       const client = await getClient();
       if (!client) throw new Error('No libSQL client available');
