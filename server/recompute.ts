@@ -66,9 +66,9 @@ export function splitCurrentAndPrevious(rows: Transaction[]): {
     fromData ?? `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
   const previousKey = previousPeriodKey(currentKey);
   return {
-    currentTxns: rows.filter((t) => t.transaction_date.startsWith(currentKey)),
+    currentTxns: rows.filter((t) => String(t.transaction_date).startsWith(currentKey)),
     previousTxns: previousKey
-      ? rows.filter((t) => t.transaction_date.startsWith(previousKey))
+      ? rows.filter((t) => String(t.transaction_date).startsWith(previousKey))
       : [],
   };
 }
