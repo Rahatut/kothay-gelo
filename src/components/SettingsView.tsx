@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Lock, Download, Trash2 } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 interface SettingsViewProps {
   locale: 'en' | 'bn';
@@ -64,7 +65,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ locale, onResetData 
 
   const loadPreview = async () => {
     try {
-      const res = await fetch('/v1/settings/purge-preview', { credentials: 'include' });
+      const res = await fetch(`${API_BASE_URL}/v1/settings/purge-preview`, { credentials: 'include' });
       const payload = await res.json();
       const counts = (payload.data ?? {}) as Record<string, number>;
       setPurgePreview(counts);
@@ -94,7 +95,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ locale, onResetData 
     setExportError(null);
     setExporting(true);
     try {
-      const res = await fetch('/v1/settings/export', {
+      const res = await fetch(`${API_BASE_URL}/v1/settings/export`, {
         credentials: 'include',
         method: 'POST',
       });

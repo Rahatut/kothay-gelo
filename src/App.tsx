@@ -31,6 +31,7 @@ import {
 } from './types';
 import { loadAllData as loadAppData } from './lib/dataLoader';
 import { Check } from 'lucide-react';
+import { API_BASE_URL } from './config';
 
 export function App() {
   /**
@@ -130,7 +131,7 @@ export function App() {
  * exactly like a slow network forever.
  */
   const loadAllData = useCallback(async () => {
-    const data = await loadAppData();
+    const data = await loadAppData(API_BASE_URL);
     setSummary(data.summary);
     setTransactions(data.transactions);
     setCategories(data.categories);
@@ -142,7 +143,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    fetch('/v1/auth/session', { credentials: 'include' })
+    fetch(`${API_BASE_URL}/v1/auth/session`, { credentials: 'include' })
       .then(response => {
         setIsAuthenticated(response.ok);
       })
@@ -248,7 +249,7 @@ export function App() {
   const handleLoadGolden = async () => {
     setIsLoadingGolden(true);
     try {
-      const res = await fetch('/v1/dataset/load-golden', {
+      const res = await fetch(`${API_BASE_URL}/v1/dataset/load-golden`, {
         credentials: 'include', method: 'POST' });
       const data = await res.json();
       if (data.success) {
@@ -277,7 +278,7 @@ export function App() {
     description: string;
     merchant_name?: string;
   }): Promise<{ created: CreatedTransaction; duplicate: import('./types').DuplicateFlag | null; warnings: any[] }> => {
-    const res = await fetch('/v1/transactions', {
+    const res = await fetch(`${API_BASE_URL}/v1/transactions`, {
       credentials: 'include',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -320,7 +321,7 @@ export function App() {
         return;
       }
 
-      const res = await fetch('/v1/capabilities/spending_patterns', {
+      const res = await fetch(`${API_BASE_URL}/v1/capabilities/spending_patterns`, {
         credentials: 'include',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -346,7 +347,7 @@ export function App() {
 
   /** The period the ledger actually holds, resolved server-side. */
   const resolveLedgerPeriod = useCallback(async (): Promise<{ start: string; end: string } | null> => {
-    const res = await fetch('/v1/dashboard', { credentials: 'include' });
+    const res = await fetch(`${API_BASE_URL}/v1/dashboard`, { credentials: 'include' });
     if (!res.ok) return null;
     const body = await res.json();
     const period = body?.data?.period;
@@ -395,7 +396,7 @@ export function App() {
   // Goal operations
   const handleCreateGoal = async (goalData: Omit<SavingsGoal, 'id' | 'current_amount'>) => {
     try {
-      const res = await fetch('/v1/goals', {
+      const res = await fetch(`${API_BASE_URL}/v1/goals`, {
         credentials: 'include',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -443,7 +444,7 @@ export function App() {
    * all of it remained in the database.
    */
   const handleResetData = async () => {
-    const res = await fetch('/v1/settings/reset', {
+    const res = await fetch(`${API_BASE_URL}/v1/settings/reset`, {
       credentials: 'include',
       method: 'POST',
     });
@@ -468,7 +469,7 @@ export function App() {
 
   const handleLogout = useCallback(async () => {
     try {
-      await fetch('/v1/auth/logout', { credentials: 'include', method: 'POST' });
+      await fetch(`${API_BASE_URL}/v1/auth/logout`, { credentials: 'include', method: 'POST' });
     } catch (err) {
       console.error('Logout request failed:', err);
     }

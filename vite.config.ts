@@ -5,6 +5,7 @@ import {defineConfig} from 'vite';
 
 const isGitHubPages = process.env.GITHUB_PAGES === 'true';
 const repoName = 'kothay-gelo';
+const apiBaseUrl = process.env.VITE_API_BASE_URL ?? (isGitHubPages ? 'https://kothay-gelo-api.onrender.com' : '');
 
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
@@ -13,6 +14,9 @@ export default defineConfig(() => ({
     alias: {
       '@': path.resolve(import.meta.dirname, '.'),
     },
+  },
+  define: {
+    'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
   },
   server: {
     hmr: process.env.DISABLE_HMR !== 'true',
