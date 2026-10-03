@@ -311,7 +311,7 @@ export async function transactionsInPeriod(
 /** Distinct calendar months that actually hold data, newest first. */
 export async function monthsWithData(accountId: string): Promise<string[]> {
   const rows = await query<{ month: string }>(
-    `SELECT DISTINCT substr(transaction_date, 1, 7) AS month
+    `SELECT DISTINCT to_char(transaction_date, 'YYYY-MM') AS month
        FROM transaction_candidates
       WHERE account_id = ?
       ORDER BY month DESC`,
