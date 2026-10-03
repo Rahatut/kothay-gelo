@@ -7,6 +7,7 @@ import type {
 } from '../../src/types';
 import { UNCATEGORIZED_CATEGORY_ID } from '../categories';
 import type { TransactionRow } from '../db/repositories/transactions';
+import { asBoolean } from '../db/repositories/base';
 
 /**
  * Repository row to domain object.
@@ -121,7 +122,7 @@ export function toTransaction(row: TransactionRow, evidenceIds: string[] = []): 
     // A user-asserted row has no document and therefore no evidence. The array
     // stays empty rather than carrying a fabricated link.
     evidence_ids: evidenceIds,
-    is_duplicate_candidate: row.is_duplicate_candidate === 1,
+    is_duplicate_candidate: asBoolean(row.is_duplicate_candidate),
     created_at: row.created_at,
     updated_at: row.created_at,
   };

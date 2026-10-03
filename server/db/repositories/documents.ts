@@ -15,7 +15,8 @@ export interface DocumentRow {
   period_end: string | null;
   row_count: number | null;
   stage: string;
-  is_sample_data: number;
+  /** `0`/`1` on SQLite, `false`/`true` on Postgres. Read via `asBoolean`. */
+  is_sample_data: number | boolean;
   created_at: string;
 }
 

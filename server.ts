@@ -1203,7 +1203,7 @@ app.get('/v1/uploads', async (req, res) => {
       );
       // Clears the duplicate flag the user has just resolved by confirming.
       await execute(
-        'UPDATE transaction_candidates SET is_duplicate_candidate = 0 WHERE account_id = ? AND id = ?',
+        'UPDATE transaction_candidates SET is_duplicate_candidate = false WHERE account_id = ? AND id = ?',
         [userId, req.params.id],
       );
     } catch (err) {

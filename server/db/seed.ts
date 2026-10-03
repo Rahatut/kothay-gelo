@@ -116,7 +116,7 @@ async function insertTransaction(
             (id, account_id, document_id, transaction_date, amount, direction,
              merchant_name, raw_text_snippet, category_id, confidence,
              extraction_method, status, is_duplicate_candidate, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DETERMINISTIC', ?, 0, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DETERMINISTIC', ?, false, ?)
           ON CONFLICT(id) DO NOTHING`,
     args: [
       row.id,

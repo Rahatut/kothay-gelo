@@ -10,7 +10,7 @@ import type {
   TransactionStatus,
 } from '../../../src/types';
 import type { InValue } from '@libsql/client';
-import { boundedLimit, validOffset, type ScopedPage } from './base';
+import { asBoolean, boundedLimit, validOffset, type ScopedPage } from './base';
 
 /**
  * Ledger rows.
@@ -36,15 +36,20 @@ export interface TransactionRow {
   confidence: number | null;
   extraction_method: 'MODEL' | 'DETERMINISTIC' | 'MANUAL';
   status: string;
-  is_duplicate_candidate: number;
+  /**
+   * `0`/`1` on SQLite, `false`/`true` on Postgres. Read it through `asBoolean`
+   * from `./base` rather than comparing to `1`, or the flag reads `false` on
+   * Postgres for every row.
+   */
+  is_duplicate_candidate: number | boolean;
   created_at: string;
   /**
-   * 1 when this row came from the sample dataset rather than an upload.
+   * Whether this row came from the sample dataset rather than an upload.
    *
    * Derived from its document rather than stored on the row, because that is where
    * the fact lives and duplicating it would let the two disagree.
    */
-  is_sample_data: number;
+  is_sample_data: number | boolean;
 }
 
 /** An inclusive `YYYY-MM-DD` range. Resolved server-side so client and server agree. */
@@ -190,7 +195,7 @@ export async function listTransactions(
   const args = [...filter.args, boundedLimit(options.limit), validOffset(options.offset)];
 
   return query<TransactionRow>(
-    `SELECT t.*, COALESCE(d.is_sample_data, 0) AS is_sample_data
+    `SELECT t.*, COALESCE(d.is_sample_data, false) AS is_sample_data
        FROM transaction_candidates t
        LEFT JOIN source_documents d ON d.id = t.document_id
       WHERE ${filter.sql.join(' AND ')}
@@ -244,7 +249,7 @@ export async function getTransaction(
   transactionId: string,
 ): Promise<TransactionRow | null> {
   const rows = await query<TransactionRow>(
-    `SELECT t.*, COALESCE(d.is_sample_data, 0) AS is_sample_data
+    `SELECT t.*, COALESCE(d.is_sample_data, false) AS is_sample_data
        FROM transaction_candidates t
        LEFT JOIN source_documents d ON d.id = t.document_id
       WHERE t.account_id = ? AND t.id = ?`,
@@ -274,7 +279,7 @@ export async function getTransactionsByIds(
 
   const placeholders = transactionIds.map(() => '?').join(', ');
   const rows = await query<TransactionRow>(
-    `SELECT t.*, COALESCE(d.is_sample_data, 0) AS is_sample_data
+    `SELECT t.*, COALESCE(d.is_sample_data, false) AS is_sample_data
        FROM transaction_candidates t
        LEFT JOIN source_documents d ON d.id = t.document_id
       WHERE t.account_id = ? AND t.id IN (${placeholders})`,
@@ -536,10 +541,10 @@ export function toClientTransaction(
     status: row.status as TransactionStatus,
     provenance,
     evidence_ids: evidenceIds,
-    is_duplicate_candidate: row.is_duplicate_candidate === 1,
+    is_duplicate_candidate: asBoolean(row.is_duplicate_candidate),
     // Carried through so any view holding a row can say it is sample data. A
     // figure the user did not spend must never be presented as their spending.
-    is_sample_data: row.is_sample_data === 1,
+    is_sample_data: asBoolean(row.is_sample_data),
     created_at: row.created_at,
     updated_at: row.created_at,
   };
@@ -610,7 +615,7 @@ export async function createManualTransaction(
         manual.description,
         manual.category_id,
         manual.status,
-        manual.is_duplicate_candidate ? 1 : 0,
+        manual.is_duplicate_candidate ? true : false,
         manual.created_at,
       ],
     );

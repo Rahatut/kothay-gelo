@@ -53,3 +53,21 @@ export function validOffset(offset: number | undefined): number {
 export function nowIso(): string {
   return new Date().toISOString();
 }
+
+/**
+ * Reads a boolean column from either driver.
+ *
+ * SQLite returns `0`/`1` because there is no boolean type; Postgres returns
+ * `true`/`false`. A row read on one engine and mapped on `=== 1` silently
+ * becomes `false` on the other, which is how sample-data labelling and the
+ * duplicate flag were lost in production while the SQLite tests passed.
+ */
+export function asBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase();
+    return v === 'true' || v === 't' || v === '1';
+  }
+  return false;
+}
