@@ -59,7 +59,7 @@ export async function insertDocument(input: {
     period_end: null,
     row_count: null,
     stage: input.stage,
-    is_sample_data: input.isSampleData ? 1 : 0,
+    is_sample_data: input.isSampleData ?? false,
     created_at: nowIso(),
   };
 

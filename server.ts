@@ -710,7 +710,7 @@ function detectedMimeFor(kind: 'PDF' | 'IMAGE' | 'TEXT' | 'BINARY'): string {
            (id, account_id, source_kind, provider, original_filename, detected_mime,
             byte_size, content_fingerprint, period_start, period_end, row_count,
             stage, is_sample_data, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 0, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, false, ?)`,
         [
           docId,
           userId,

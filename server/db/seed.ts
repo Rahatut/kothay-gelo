@@ -65,7 +65,7 @@ async function insertDocument(
             (id, account_id, source_kind, provider, original_filename, detected_mime,
              byte_size, content_fingerprint, period_start, period_end, row_count,
              stage, is_sample_data, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 1, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', true, ?)
           ON CONFLICT(id) DO NOTHING`,
     args: [
       doc.id,
