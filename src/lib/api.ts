@@ -1,10 +1,10 @@
-const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) ?? '/v1';
+import { apiUrl } from '../config';
 
 export async function apiFetch<T = unknown>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const url = `${API_BASE}${path}`;
+  const url = apiUrl(path);
   const response = await fetch(url, {
     ...options,
     credentials: 'include',

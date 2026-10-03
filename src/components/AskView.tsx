@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { API_BASE_URL } from '../config';
+import { apiUrl } from '../config';
 
 interface AskViewProps {
   locale: 'en' | 'bn';
@@ -66,7 +66,7 @@ export const AskView: React.FC<AskViewProps> = ({ locale }) => {
     setQuestion('');
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/ask`, {
+      const res = await fetch(apiUrl('/ask'), {
         credentials: 'include',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -97,7 +97,7 @@ export const AskView: React.FC<AskViewProps> = ({ locale }) => {
   };
 
   const feedback = async (text: string, feedback_type: string) => {
-    await fetch(`${API_BASE_URL}/v1/ask/feedback`, {
+    await fetch(apiUrl('/ask/feedback'), {
       credentials: 'include',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Recommendation } from '../types';
-import { API_BASE_URL } from '../config';
+import { apiUrl } from '../config';
 
 interface RecommendationsViewProps {
   locale: 'en' | 'bn';
@@ -52,7 +52,7 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({ locale
   const [note, setNote] = useState<string | null>(null);
 
   const load = async () => {
-    const res = await fetch(`${API_BASE_URL}/v1/recommendations`, { credentials: 'include' });
+    const res = await fetch(apiUrl('/recommendations'), { credentials: 'include' });
     const payload = await res.json().catch(() => null);
     if (res.ok && payload?.data) {
       setRecs(payload.data);
@@ -67,7 +67,7 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({ locale
   }, []);
 
   const feedback = async (id: string, feedback_type: string) => {
-    await fetch(`${API_BASE_URL}/v1/recommendations/${id}/feedback`, {
+    await fetch(apiUrl(`/recommendations/${encodeURIComponent(id)}/feedback`), {
       credentials: 'include',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

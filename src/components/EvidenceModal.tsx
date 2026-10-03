@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, ShieldCheck, MapPin } from 'lucide-react';
 import { Transaction, EvidenceItem } from '../types';
 import { isUserAsserted, extractionConfidenceOf, evidenceFor } from '../provenance';
+import { apiUrl } from '../config';
 
 interface EvidenceModalProps {
   transaction: Transaction | null;
@@ -27,7 +28,7 @@ export const EvidenceModal: React.FC<EvidenceModalProps> = ({
     const fetchEvidence = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(`/v1/transactions/${transaction.id}/evidence`, { credentials: 'include' });
+        const res = await fetch(apiUrl(`/transactions/${encodeURIComponent(transaction.id)}/evidence`), { credentials: 'include' });
         if (res.ok) {
           const json = await res.json();
           setFetchedEvidence(json.data?.evidence || json.data || null);

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Volume2, Calculator, Sparkles, RefreshCw } from 'lucide-react';
 import { InsightRecommendation } from '../types';
+import { apiUrl } from '../config';
 
 interface InsightsViewProps {
   insights: InsightRecommendation[];
@@ -55,7 +56,7 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
   const handleNarrate = async (insightId: string) => {
     setNarratingId(insightId);
     try {
-      const res = await fetch(`/v1/insights/${insightId}/narrate?lang=${locale}`, {
+      const res = await fetch(apiUrl(`/insights/${encodeURIComponent(insightId)}/narrate?lang=${encodeURIComponent(locale)}`), {
         credentials: 'include',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

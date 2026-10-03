@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { FileText, Database, AlertCircle, ArrowRight, Check } from 'lucide-react';
 import { ProcessingStage, DocumentRecord } from '../types';
-import { API_BASE_URL } from '../config';
+import { apiUrl } from '../config';
 
 interface UploadViewProps {
   locale: 'en' | 'bn';
@@ -190,7 +190,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
         content = await selectedFile.text();
       }
 
-      const uploadRes = await fetch(`${API_BASE_URL}/v1/uploads`, {
+      const uploadRes = await fetch(apiUrl('/uploads'), {
         credentials: 'include',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -227,7 +227,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
       while (!isComplete && pollAttempts < MAX_POLLS) {
         pollAttempts++;
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-        const statusRes = await fetch(`${API_BASE_URL}/v1/uploads/${docId}/status`, { credentials: 'include' });
+        const statusRes = await fetch(apiUrl(`/uploads/${encodeURIComponent(docId)}/status`), { credentials: 'include' });
         if (statusRes.ok) {
           const statusData = await statusRes.json();
           const doc = statusData.data || statusData;

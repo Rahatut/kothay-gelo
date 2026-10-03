@@ -1,3 +1,4 @@
+import { apiUrl, API_BASE_URL } from '../config';
 import type {
   Category,
   DashboardResponse,
@@ -86,10 +87,10 @@ function emptySummary(): DashboardSummary {
 export async function runCapability<T>(
   name: string,
   period: PeriodRange,
-  baseUrl = '',
+  baseUrl: string = API_BASE_URL,
 ): Promise<{ ok: boolean; data?: T }> {
   try {
-    const res = await fetch(`${baseUrl}/v1/capabilities/${name}`, {
+    const res = await fetch(apiUrl(`/capabilities/${encodeURIComponent(name)}`, baseUrl), {
       credentials: 'include',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -118,7 +119,7 @@ export async function runCapability<T>(
 export async function toDashboardSummary(
   data: DashboardResponse,
   needsReviewCount: number,
-  baseUrl = '',
+  baseUrl: string = API_BASE_URL,
 ): Promise<DashboardSummary> {
   const period: PeriodRange = data.period ?? { start: '', end: '' };
   const totals = data.summary;
@@ -162,18 +163,18 @@ export async function toDashboardSummary(
  * A slice that fails is recorded in `failed` and left at its empty value; the rest
  * still load. One broken endpoint should cost one card, not the page.
  */
-export async function loadAllData(baseUrl = ''): Promise<AppData> {
-  const get = (path: string) => fetch(`${baseUrl}${path}`, { credentials: 'include' });
+export async function loadAllData(baseUrl: string = API_BASE_URL): Promise<AppData> {
+  const get = (path: string) => fetch(apiUrl(path, baseUrl), { credentials: 'include' });
 
   let responses: Response[];
   try {
     responses = await Promise.all([
-      get('/v1/dashboard'),
-      get('/v1/transactions'),
-      get('/v1/categories'),
-      get('/v1/insights'),
-      get('/v1/goals'),
-      get('/v1/uploads'),
+      get('/dashboard'),
+      get('/transactions'),
+      get('/categories'),
+      get('/insights'),
+      get('/goals'),
+      get('/uploads'),
     ]);
   } catch (err) {
     // A failed fan-out means no endpoint answered at all.

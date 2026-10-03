@@ -23,8 +23,11 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          GITHUB_PAGES: "true"
-          VITE_API_URL: "https://kothay-gelo-api.onrender.com/v1"
+          # Project Pages site, so the built client resolves under /kothay-gelo/.
+          APP_BASE_PATH: "/kothay-gelo/"
+          # API origin only: no trailing slash, no /v1 suffix. The client
+          # appends /v1 itself.
+          VITE_API_BASE_URL: "https://kothay-gelo-api.onrender.com"
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

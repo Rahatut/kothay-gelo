@@ -8,12 +8,26 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Required: the server refuses to boot without DATABASE_URL
+      # (assertRequiredConfig in server/config.ts). Set a file: URL only for
+      # a throwaway preview — the container filesystem is ephemeral.
+      - key: DATABASE_URL
+        sync: false
       - key: APP_URL
         value: https://kothay-gelo-api.onrender.com
       - key: PORT
         value: "10000"
       - key: DEMO_SEED
         value: "1"
+      # Render serves dist/ and /v1 from one origin, so the client is built
+      # with an empty base URL and calls the API same-origin.
+      - key: VITE_API_BASE_URL
+        value: ""
+      # The app is served from the service root on Render.
+      - key: APP_BASE_PATH
+        value: "/"
+      - key: ALLOWED_ORIGINS
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: SUPABASE_URL
@@ -23,6 +37,4 @@ services:
       - key: SUPABASE_APP_DB_URL
         sync: false
       - key: SUPABASE_APP_DB_PASSWORD
-        sync: false
-      - key: ALLOWED_ORIGINS
         sync: false

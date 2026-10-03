@@ -11,7 +11,7 @@ npm install
 # Copy local env template
 cp .env.example .env
 
-# Edit .env with your keys (see Environment Variables below)
+# Edit .env (see Environment Variables below)
 # Required: DATABASE_URL, APP_URL
 # Optional: GEMINI_API_KEY
 
@@ -21,13 +21,23 @@ npm run dev
 
 Open http://localhost:3000
 
+Local dev needs no configuration beyond the two required server variables.
+`VITE_API_BASE_URL` is empty by default, so the client calls the API
+same-origin, and the Vite dev proxy forwards `/v1` to `DEV_API_TARGET`.
+
 ## Environment Variables
+
+One codebase serves every environment. Local dev and production differ only
+by these variables.
+
+### Server runtime
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | SQLite file path for dev (`file:./data/kothay-gelo.db`) |
-| `APP_URL` | Yes | Base URL for Origin checks (`http://localhost:3000`) |
+| `DATABASE_URL` | Yes | `file:` for dev (`file:./data/kothay-gelo.db`), `libsql://`, `https://` or `postgresql://` in production. Boot fails without it |
+| `APP_URL` | Yes | Origin used for request Origin checks (`http://localhost:3000`) |
 | `PORT` | No | Server port (default: 3000) |
+| `ALLOWED_ORIGINS` | No | Comma-separated extra origins allowed to call the API, e.g. a GitHub Pages host |
 | `DEMO_SEED` | No | Seed demo data on boot (`1` = yes) |
 | `GEMINI_API_KEY` | No | Google AI Studio key for LLM extraction/narration |
 | `GEMINI_MODEL` | No | Model override (default: `gemini-flash-lite-latest`) |
@@ -36,6 +46,19 @@ Open http://localhost:3000
 | `SUPABASE_SERVICE_KEY` | No | Supabase service role key |
 | `SUPABASE_APP_DB_URL` | No | Pooler connection string for app DB |
 | `SUPABASE_APP_DB_PASSWORD` | No | Pooler password |
+| `SUPABASE_MIGRATION_DB_URL` | No | Pooler connection string for migrations; defaults to `SUPABASE_APP_DB_URL` |
+
+### Build time — client
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VITE_API_BASE_URL` | empty (same-origin) | API **origin only** — no trailing slash, no `/v1` suffix. The client appends `/v1`. Set it only when the API is on a different origin than the built client |
+| `APP_BASE_PATH` | `/` | Base path the built client is served from. GitHub Pages project sites need `/kothay-gelo/` |
+| `DEV_API_TARGET` | `http://localhost:3000` | Origin the Vite dev proxy forwards `/v1` to. Dev only |
+
+All three are read from the process environment, the first two when
+`npm run build` runs. Changing them changes only the built assets, not the
+server.
 
 **Never commit `.env`** — it's in `.gitignore`.
 
@@ -53,6 +76,38 @@ The `data/` directory is created automatically. SQLite file lives there.
 ### Supabase/Postgres (production target)
 
 Uncomment and fill in the Supabase block in `.env` to run against Postgres instead of SQLite. Migrations live in `server/db/migrations-pg/`.
+
+## Deployment
+
+Both targets run the same `npm run build` output. They differ only in the
+three build-time variables.
+
+### Render (API and frontend on one origin)
+
+`render.yaml` declares the blueprint, and `.env.production.example` lists
+every variable the Render service needs. Express serves `dist/` statically, so
+the client is built with an empty API base URL:
+
+```
+VITE_API_BASE_URL=      # empty = same-origin
+APP_BASE_PATH=/
+```
+
+Set `DATABASE_URL` and `ALLOWED_ORIGINS` as `sync: false` secrets in the
+Render dashboard. Build command stays `npm ci && npm run build`.
+
+### GitHub Pages (static client, API on Render)
+
+`.github/workflows/pages.yml` builds with the repo base path and an
+origin-only API URL:
+
+```
+APP_BASE_PATH=/kothay-gelo/
+VITE_API_BASE_URL=https://kothay-gelo-api.onrender.com
+```
+
+Set `ALLOWED_ORIGINS` on Render to the Pages origin
+(`https://<user>.github.io`) so the browser requests pass Origin checks.
 
 ## Commands
 
