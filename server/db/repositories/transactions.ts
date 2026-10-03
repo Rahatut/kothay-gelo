@@ -1,4 +1,5 @@
 import { query, transaction, execute } from '../client';
+import { isPostgresDatabase } from '../../config';
 
 /** The handle a libSQL transaction exposes. Named so the casts are in one place. */
 type Tx = { execute: (sql: string, params?: unknown[]) => Promise<unknown> };
@@ -315,13 +316,16 @@ export async function transactionsInPeriod(
 
 /** Distinct calendar months that actually hold data, newest first. */
 export async function monthsWithData(accountId: string): Promise<string[]> {
-  const rows = await query<{ month: string }>(
-    `SELECT DISTINCT to_char(transaction_date, 'YYYY-MM') AS month
+  const sql = isPostgresDatabase()
+    ? `SELECT DISTINCT to_char(transaction_date, 'YYYY-MM') AS month
        FROM transaction_candidates
       WHERE account_id = ?
-      ORDER BY month DESC`,
-    [accountId],
-  );
+      ORDER BY month DESC`
+    : `SELECT DISTINCT strftime('%Y-%m', transaction_date) AS month
+       FROM transaction_candidates
+      WHERE account_id = ?
+      ORDER BY month DESC`;
+  const rows = await query<{ month: string }>(sql, [accountId]);
   return rows.map((r) => r.month);
 }
 

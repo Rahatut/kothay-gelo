@@ -11,6 +11,10 @@ import { renderToString } from 'react-dom/server';
 import { buildTrendSeries } from './financialEngine';
 import type { Transaction } from '../src/types';
 
+// Provide Vite-like env for client components during server-side rendering
+// @ts-expect-error - import.meta.env is read-only in TS but writable in tsx/Node.js
+import.meta.env = { ...import.meta.env, VITE_API_BASE_URL: '' };
+
 /**
  * Every screen renders against a live server.
  *
