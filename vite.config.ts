@@ -5,7 +5,8 @@ import {defineConfig} from 'vite';
 
 const isGitHubPages = process.env.GITHUB_PAGES === 'true';
 const repoName = 'kothay-gelo';
-const apiBaseUrl = process.env.VITE_API_BASE_URL ?? (isGitHubPages ? 'https://kothay-gelo-api.onrender.com' : '');
+// Default to Render API for production; dev uses proxy to localhost:3000
+const apiBaseUrl = process.env.VITE_API_BASE_URL ?? 'https://kothay-gelo-api.onrender.com';
 
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
