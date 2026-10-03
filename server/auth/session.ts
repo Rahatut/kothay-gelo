@@ -51,8 +51,8 @@ export function setSessionCookie(res: Response, token: string, expiresAt: string
   const isProduction = appUrl().startsWith('https://');
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'none',
     path: '/',
     expires: new Date(expiresAt),
   });
@@ -60,11 +60,10 @@ export function setSessionCookie(res: Response, token: string, expiresAt: string
 
 /** Clears the cookie with the same attributes it was set with. */
 export function clearSessionCookie(res: Response): void {
-  const isProduction = appUrl().startsWith('https://');
   res.clearCookie(SESSION_COOKIE, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'none',
     path: '/',
   });
 }
