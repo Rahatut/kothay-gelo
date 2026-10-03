@@ -968,7 +968,7 @@ app.get('/v1/uploads', async (req, res) => {
         total,
         truncated: total === 500,
         limit: 500,
-        data: visible.sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)),
+        data: visible.sort((a, b) => String(b.transaction_date).localeCompare(String(a.transaction_date))),
       });
     } catch (err) {
       console.error('[transactions] listing failed:', err);

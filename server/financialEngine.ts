@@ -1027,7 +1027,7 @@ export function detectRecurringPatterns(
 
   for (const rows of byMerchant.values()) {
     if (rows.length < 2) continue;
-    const sorted = [...rows].sort((a, b) => a.transaction_date.localeCompare(b.transaction_date));
+    const sorted = [...rows].sort((a, b) => String(a.transaction_date).localeCompare(String(b.transaction_date)));
 
     const gaps: number[] = [];
     for (let i = 1; i < sorted.length; i++) {
